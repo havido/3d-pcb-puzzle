@@ -81,16 +81,6 @@ def test_recipe_loading(tmp_path):
         load_recipe(f)
 
 
-def test_shipped_recipe_loads():
-    from conftest import ROOT
-    r = load_recipe(ROOT / "params" / "3dpcb.yaml")
-    assert r.pending_warnings() == []
-
-
-def test_phase4_options_warn_until_implemented():
-    assert Recipe(extra_layers={"User.1": {"op": "recess", "depth": 1.5}}).pending_warnings()
-
-
 def test_recipe_changes_the_output(testboard3d):
     _, b2d, bld = testboard3d
     thicker = build(b2d, Recipe(base_thickness=3.0, arc_chord_mm=FINE))

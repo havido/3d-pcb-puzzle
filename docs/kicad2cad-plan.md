@@ -4,7 +4,7 @@ Turn **any** KiCad board file (`.kicad_pcb`) into a 3D-printable 3DPCB board wit
 
 - Ticket: #15, "Generator v1". Its outputs feed #29 (cutter plate), #31 (design checks) and #16 (on-screen goose map).
 - Owner: havido (#15).
-- **Status (Sat 10:25): phases 0–3 done on branch `feat/kicad2cad`, 75 tests passing.** The tool builds printable boards. **You can do H-A, H-B and H-C now** (§7). Next: phase 4 (recipe extras).
+- **Status (Sat 11:15): phases 0–4 done on branch `feat/kicad2cad`, 95 tests passing.** Use `--recipe params/3dpcb.yaml` for boards you'll print. **Still to do by hand: H-A, H-B, H-C** (§7). Next: phase 5 (goose comparison) once Adit's files are in #28, and phase 6 (docs/handoff).
 - Written 2026-09-19. The golden numbers below were measured from `Archive 2/badge.kicad_pcb`.
 
 ## 1. Goal, scope, definition of done
@@ -94,6 +94,7 @@ include_copper_graphics: true
 alignment_holes:            # for the cutter plate's pins (#29)
   diameter: 3.0
   positions: auto           # auto = near 2 opposite outline corners, clear of copper; or [[x, y], ...]
+  clearance: 3.0            # mm kept free around each pin hole
 extra_layers:               # goose-style extensions (docs/goose_spec.md, #12)
   User.1: {op: recess, depth: 1.5}
   User.2: {op: pocket, depth: 1.0}
@@ -278,15 +279,20 @@ Each phase ends with something you can run and check. Times are for one person n
 
 **Verify:** do **H-A** (slice) and **H-B** (paper overlay) below on the test board.
 
-### Phase 4: recipe extras (45 min)
-- [ ] `extra_layers` operations:
+### Phase 4: recipe extras (45 min): ✅ done
+*As built:*
+- Built-in defaults are a **plain conversion**. `params/3dpcb.yaml` is the **fabrication preset**: small drills enlarged to 1 mm, two alignment holes placed automatically.
+- `prepare()` applies the 2D extras (drills, alignment holes) and returns a new `Board2D` (`.alignment` holds the pin holes for #29) plus a list of what changed. `build()` cuts the extra layers and records the volume each cut removed.
+- Auto alignment: nearest free spot to each corner of both diagonals, keeping the pair furthest apart. "Free" means ≥ clearance + radius (+ 0.01 mm margin) from copper, holes, the edge, and any layer the recipe cuts. It warns if there's no room or the pins end up close.
+- Mesh-hygiene bug found while re-verifying phase 3 (the badge STL wasn't watertight once saved and reloaded) and fixed. Every build now also checks the written STL.
+- [x] `extra_layers` operations:
   - `recess` (lower the top surface by `depth`)
   - `pocket` (same, for small seat pockets)
   - `through` (cut all the way through)
-- [ ] `alignment_holes`:
+- [x] `alignment_holes`:
   - `auto`: place 2 holes near opposite outline corners, at least 3 mm from any copper and the edge
   - or explicit positions
-- [ ] `small_drill` policy (enlarge / skip / keep), with a count in the report.
+- [x] `small_drill` policy (enlarge / skip / keep), with a count in the report.
 
 **Tests:**
 - The User.1 recess removes exactly `area × depth` of volume.
@@ -415,6 +421,7 @@ Keep the sheet. After H-C, lay the plastic board on top of it: the outlines and 
 | ✅ by 10:00 | Phases 0–1 (parser + 42 tests). |
 | ✅ by 10:05 | Phase 2 (shapes → 2D + `preview.png`, 60 tests). |
 | ✅ by 10:25 | Phase 3 (3D + all exports, 75 tests). |
+| ✅ by 11:15 | STL watertightness fix + phase 4 (recipe extras, 95 tests). |
 | before 11:30 | H-A (slice) + H-B (paper check) on the test board; submit the test-board print (H-C) so it prints during the workshop. |
 | 11:30 | Workshop, then the badge app (your critical path to M2 at 21:00). |
 | after | Measure the test board (H-C). Phases 4–6 and H-D: you in gaps, or hand over to Akshat-Kalra (#29/#31 build on this anyway). |

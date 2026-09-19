@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from .build import RecipeError, build, load_recipe
+from .build import RecipeError, build, load_recipe, prepare
 from .export import write_meshes, write_plot_1to1, write_preview, write_report, write_svgs
 from .parse import ParseError, load
 from .shapes import to_board2d
@@ -37,8 +37,8 @@ def main(argv=None) -> int:
         board = load(args.board, arc_chord_mm=recipe.arc_chord_mm)
         if recipe.copper_layer not in board.copper_layers:
             raise RecipeError(f"{recipe.copper_layer} is not a copper layer of this board ({', '.join(board.copper_layers)})")
-        b2d = to_board2d(board, chord=recipe.arc_chord_mm, include_zones=recipe.include_zones,
-                         include_copper_graphics=recipe.include_copper_graphics)
+        b2d, effects = prepare(to_board2d(board, chord=recipe.arc_chord_mm, include_zones=recipe.include_zones,
+                                          include_copper_graphics=recipe.include_copper_graphics), recipe)
     except (OSError, ParseError, RecipeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -53,7 +53,7 @@ def main(argv=None) -> int:
         for svg in write_svgs(b2d, args.out / "layers", layer=recipe.copper_layer):
             files[f"svg:{svg.stem}"] = svg
         seconds = time.perf_counter() - t0
-        report = write_report(args.out / "report.json", s, recipe, bld, files, seconds)
+        report = write_report(args.out / "report.json", s, recipe, bld, effects, files, seconds)
         s = json.loads(report.read_text())
 
     if args.summary:

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from conftest import BADGE, FIXTURES
+from conftest import BADGE, FIXTURES, ROOT
 from kicad2cad.__main__ import main
 
 
@@ -72,3 +72,10 @@ def test_bad_recipe_exits_1(tmp_path, capsys):
 
 def test_unknown_layer_exits_1(capsys):
     assert main([str(FIXTURES / "testboard.kicad_pcb"), "--summary", "--layer", "In1.Cu"]) == 1
+
+
+def test_fab_preset_reports_its_effects(tmp_path):
+    assert main([str(FIXTURES / "testboard.kicad_pcb"), "-o", str(tmp_path), "--recipe", str(ROOT / "params" / "3dpcb.yaml")]) == 0
+    b = json.loads((tmp_path / "report.json").read_text())["build"]
+    assert len(b["recipe_effects"]["alignment_holes"]) == 2
+    assert b["stl_file_watertight"] and b["volume_mm3"] == pytest.approx(b["volume_formula_mm3"], rel=1e-5)

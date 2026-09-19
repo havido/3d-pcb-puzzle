@@ -61,6 +61,9 @@ def write_preview(b: Board2D, path: str | Path, layer: str = "F.Cu", title: str 
         _draw(ax, geom, facecolor="none", edgecolor=COLORS["user"], linewidth=0.8, hatch="///")
     _draw(ax, b.merged.get(layer, MultiPolygon()), facecolor=COLORS["copper"], edgecolor="none")
     _draw(ax, b.holes, facecolor="white", edgecolor=COLORS["edge"], linewidth=0.3)
+    for x, y, d in b.alignment:                                # cutter pin holes
+        ax.add_patch(plt.Circle((x, y), d / 2, fill=False, color=COLORS["user"], linewidth=1.5))
+        ax.annotate("pin", (x, y), xytext=(0, d * 2), textcoords="offset points", ha="center", color=COLORS["user"], fontsize=7)
     for i, (mx, my, _) in enumerate(b.markers, 1):
         ax.add_patch(plt.Circle((mx, my), max(1.5, max(w, h) * 0.015), fill=False, color=COLORS["marker"], linewidth=1.5))
         ax.annotate(str(i), (mx, my), xytext=(4, -4), textcoords="offset points", color=COLORS["marker"], fontsize=9, weight="bold")
@@ -72,7 +75,9 @@ def write_preview(b: Board2D, path: str | Path, layer: str = "F.Cu", title: str 
 
     area = b.merged.get(layer, MultiPolygon()).area
     lines = [f"TOP VIEW (as in KiCad) · {title or Path(b.source).name} · {w:.1f} × {h:.1f} mm",
-             f"{layer} copper {area:.0f} mm² · {len(b.drills)} holes · user layers: {', '.join(b.user_layers) or 'none'}"]
+             f"{layer} copper {area:.0f} mm² · {len(b.drills)} holes"
+             + (f" + {len(b.alignment)} alignment pins" if b.alignment else "")
+             + f" · user layers: {', '.join(b.user_layers) or 'none'}"]
     lines += [f"({i}) {msg[:110]}" for i, (_, _, msg) in enumerate(b.markers, 1)][:4]
     unlocated = len(b.warnings) - len(b.markers)
     if unlocated > 0:
@@ -156,7 +161,7 @@ def stl_file_watertight(path: Path) -> bool:
     return bool(trimesh.load(str(path), file_type="stl").is_watertight)
 
 
-def write_report(path: Path, summary: dict, recipe, bld, files: dict[str, Path], seconds: float) -> Path:
+def write_report(path: Path, summary: dict, recipe, bld, effects: dict, files: dict[str, Path], seconds: float) -> Path:
     m = bld.mesh
     report = dict(summary)
     report["build"] = {
@@ -164,7 +169,10 @@ def write_report(path: Path, summary: dict, recipe, bld, files: dict[str, Path],
         "base_area_mm2": round(bld.base_area, 3),
         "copper_area_mm2": round(bld.copper_area, 3),
         "volume_mm3": round(float(m.volume), 3),
-        "volume_formula_mm3": round(bld.base_area * recipe.base_thickness + bld.copper_area * recipe.copper_raise, 3),
+        # base × thickness + copper × height − what the extra-layer cuts removed
+        "volume_formula_mm3": round(bld.base_area * recipe.base_thickness + bld.copper_area * recipe.copper_raise
+                                    - sum(op["removed_mm3"] for op in bld.extra_layers), 3),
+        "recipe_effects": {**effects, "extra_layers": bld.extra_layers},
         "bounds_mm": [[round(float(v), 4) for v in row] for row in m.bounds],
         "triangles": int(len(m.faces)),
         "watertight": bool(m.is_watertight),

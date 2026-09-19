@@ -37,6 +37,7 @@ class Board2D:
     user_layers: dict[str, MultiPolygon]
     warnings: list[str] = field(default_factory=list)
     markers: list[tuple[float, float, str]] = field(default_factory=list)
+    alignment: list[tuple[float, float, float]] = field(default_factory=list)   # cutter pin holes: x, y, Ø (phase 4)
 
 
 # ---- primitive shapes ---------------------------------------------------------------------------
