@@ -329,6 +329,24 @@ def open_port(port):
         raise
 
 
+def resync(c, max_pad=65536):
+    """Leave the badge at a live prompt even if a failed push left cmd_put
+    waiting for bytes: feed it zeros (it takes what it needs, prints OK, and
+    the rest lands as one garbage command line), like the web IDE does."""
+    for pad in (0, 4096, max_pad):
+        if pad:
+            c.raw(bytes(pad))
+        for _ in range(2):
+            c.buf = ""
+            c.line("")
+            try:
+                c.wait("badge> ", 3)
+                return True
+            except TimeoutError:
+                pass
+    return False
+
+
 class Console:
     def __init__(self, port):
         self.s = open_port(port)
@@ -609,8 +627,9 @@ def push(target, port):
     print(f"pushing to {port} ...")
     c = Console(port)
     try:
-        c.line("")
-        c.wait("badge> ", 10)   # the badge can reboot on connect; give it time
+        if not resync(c):
+            sys.exit("The badge is not responding. Wake it (it sleeps on the "
+                     "launcher) or switch it off and on, then try again.")
         if any(n.endswith(".bin") for n in files):
             c.buf = ""
             c.line("put --binary")
@@ -626,7 +645,7 @@ def push(target, port):
             c.line(f"put {remote}/{name} {len(data)}")
             c.wait("READY")
             c.raw(data)
-            c.wait(f"OK {len(data)}", 20)
+            c.wait(f"OK {len(data)}", 60)   # big images need flash time
             print("ok")
         c.buf = ""
         c.line("reload")
