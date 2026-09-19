@@ -3,7 +3,8 @@
 Turn **any** KiCad board file (`.kicad_pcb`) into a 3D-printable 3DPCB board with one command. No GUI, no KiCad install needed.
 
 - Ticket: #15, "Generator v1". Its outputs feed #29 (cutter plate), #31 (design checks) and #16 (on-screen goose map).
-- Owner: havido, assuming the #15 reassignment discussed earlier; the tickets haven't been changed yet.
+- Owner: havido (#15).
+- **Status (Sat 10:00): phases 0–1 done on branch `feat/kicad2cad`, 42 tests passing.** Next: phase 2.
 - Written 2026-09-19. The golden numbers below were measured from `Archive 2/badge.kicad_pcb`.
 
 ## 1. Goal, scope, definition of done
@@ -84,7 +85,7 @@ base_thickness: 2.0         # mm, plastic under the copper
 copper_raise: 0.6           # mm, raised copper height
 min_drill: 1.0              # CLAUDE.md: holes ≥ 1 mm
 small_drill: enlarge        # enlarge | skip | keep  (what to do with drills < min_drill)
-arc_chord_mm: 0.1           # max chord error when turning arcs/circles into segments
+arc_chord_mm: 0.02          # max chord error when turning arcs/circles into segments (0.1 would shrink a Ø6 hole by ~4 % in area)
 include_zones: true
 include_copper_graphics: true
 alignment_holes:            # for the cutter plate's pins (#29)
@@ -100,8 +101,11 @@ extra_layers:               # goose-style extensions (docs/goose_spec.md, #12)
 tools/kicad2cad/
   __main__.py      # CLI
   sexp.py          # tokenizer → nested lists
-  parse.py         # nested lists → Board2D
-  shapes.py        # track / arc / pad / zone / via / graphic → shapely
+  geom.py          # footprint placement, arc/circle sampling
+  model.py         # what the parser reads: tracks, pads, vias, zones, graphics, drills (KicadBoard)
+  parse.py         # nested lists → KicadBoard (phase 1)
+  summary.py       # counts for --summary / report.json
+  shapes.py        # KicadBoard → Board2D polygons (phase 2)
   build.py         # Board2D + recipe → trimesh solids
   export.py        # 3MF, STL, preview.png, plot_1to1.pdf, layers/*.svg, report.json
   compare.py       # compare two meshes (goose check, §6 phase 5)
@@ -109,7 +113,8 @@ tools/kicad2cad/
 params/3dpcb.yaml
 tests/
   fixtures/make_testboard.py    # writes tests/fixtures/testboard.kicad_pcb (known geometry)
-  test_sexp.py  test_parse.py  test_shapes.py  test_build.py  test_cli.py  test_badge.py
+  conftest.py  test_sexp.py  test_geom.py  test_parse.py  test_testboard.py  test_badge.py  test_cli.py
+  test_shapes.py  test_build.py   (phases 2–3)
 .github/workflows/tests.yml     # pytest on every push
 ```
 
@@ -128,11 +133,11 @@ tests/
 
 ## 4. The test board (a synthetic fixture with known answers)
 
-`tests/fixtures/make_testboard.py` writes `testboard.kicad_pcb` **and** `testboard.expected.json`. The expected file holds areas and volumes worked out with plain geometry formulas, not by running the pipeline, so the tests can't agree with themselves by accident. It's also the board we print in H-C. It's 50 × 35 mm, a ~20 min print, and no two features overlap.
+`tests/fixtures/make_testboard.py` writes `testboard.kicad_pcb` **and** `testboard.expected.json`. The expected file holds areas and volumes worked out with plain geometry formulas, not by running the pipeline, so the tests can't agree with themselves by accident. It's also the board we print in H-C. It's 50 × 40 mm at KiCad (100, 100), a ~20 min print, and no two copper features overlap.
 
 | Feature | Why it's there |
 |---|---|
-| Outline: 50 × 35 rectangle with one R5 rounded corner (`gr_arc`) | outline made of lines + an arc |
+| Outline: 50 × 40 rectangle with one R5 rounded corner (`gr_arc`) | outline made of lines + an arc |
 | Interior cut-out: Ø6 circle | holes inside the outline |
 | 4 straight tracks, 25 mm long, widths 1.0 / 1.5 / 2.0 / 3.0 mm | trace widths to measure with calipers (H-C) |
 | One 90° arc track, R8, 2 mm wide | arcs (the badge has none) |
@@ -141,7 +146,7 @@ tests/
 | Via: size 2.0, drill 1.0 | vias |
 | Filled zone `GND`: 8 × 8 square | zones |
 | Plain holes Ø1.0 / 1.5 / 2.0 | hole sizes to measure (H-C) |
-| An "L"-shaped marker track in the top-left corner | mirror check: the L must read the same way on paper, on screen and in plastic (H-B/H-C) |
+| An "L"-shaped filled copper polygon (`gr_poly`) in the top-left corner | mirror check: the L must read the same way on paper, on screen and in plastic (H-B/H-C) |
 | `gr_text "HONK"` on F.Cu | must produce exactly one warning |
 | `User.1` rectangle 20 × 4 | recipe "recess" operation (goose channels) |
 
@@ -161,7 +166,7 @@ Measured during planning. `tests/test_badge.py` asserts them.
 | Zones | F.Cu GND with 15 filled polygons; 2 keep-out areas with no net → ignored, not copper |
 | Graphics on F.Cu | 2 `gr_circle` + 1 `gr_rect` → copper; **1 `gr_text` → 1 warning** |
 | Pad positions (±0.01 mm) | SW2 pad 1 = (73.83, 118.93) GND · SW10 (180°) pad 1 = (116.54, 152.10) ESP32_BOOT · U8 (90°) pad 1 = (107.60, 138.09) SR_SHLD |
-| **Pad ↔ track test** | ≥ 333 pads sit within 0.05 mm of a same-net track end, ≥ 149 of them on 90°/270° footprints. The wrong rotation sign gives 186 / 2, so this test catches it. |
+| **Pad ↔ track test** | ≥ 331 pads sit within 0.05 mm of a same-net track end (identical at 0.01 mm), ≥ 148 of them on 90°/270° footprints. The wrong rotation sign gives 185 / 2, so this test catches it. |
 
 **Rotation rule (verified by the pad ↔ track test):** a pad's `(at x y angle)` gives its position in the footprint's own coordinates, before rotation. Its *angle* already includes the footprint's rotation.
 - To place a pad: `gx = fx + x·cos r + y·sin r`, `gy = fy − x·sin r + y·cos r`, with `r` = the footprint's angle.
@@ -180,8 +185,9 @@ Each phase ends with something you can run and check. Times are for one person n
 
 **Verify:** `pytest -q` → `1 passed`. Push the branch → the repo's **Actions** tab shows a green check.
 
-### Phase 1: read the file (60–75 min)
-- [ ] `sexp.py`: tokenizer + nested-list builder. It must handle quoted strings with spaces and `\"`. Keep numbers as strings until you use them. Seed: the ~30-line parser used during planning, which read the 11 MB badge file in about 1 s.
+### Phase 1: read the file (60–75 min): ✅ done
+- [ ] `sexp.py`: tokenizer + nested-list builder. It must handle quoted strings with spaces and `\"`. Keep numbers as strings until you use them. Parses the 11 MB badge file in about 1 s.
+- Built as an intermediate step: `parse.py` produces a `KicadBoard` (`model.py`) with every primitive already placed in board coordinates. Phase 2's `shapes.py` turns that into the `Board2D` contract above.
 - [ ] `parse.py` → `Board2D`:
   - **Outline:** read `gr_line`, `gr_arc`, `gr_circle`, `gr_rect`, `gr_poly` on `Edge.Cuts`, plus `fp_*` shapes on `Edge.Cuts` inside footprints. Join them with `shapely.ops.polygonize`. The largest ring is the outline; rings inside it become its holes. If the outline isn't closed, fail with the coordinates of the gap.
   - **Copper:**
@@ -194,7 +200,7 @@ Each phase ends with something you can run and check. Times are for one person n
   - **Drills:** from pads (plated or not) and vias.
   - **User layers:** `gr_poly`, `gr_rect`, `gr_circle` on `User.*`.
   - **Warnings:** text on copper, custom and trapezoid pads, zones with no fill (fall back to the zone outline), anything on B.Cu when `copper_layer` is F.Cu.
-- [ ] `python -m kicad2cad <file> --summary` prints the counts.
+- [x] `python -m kicad2cad <file> --summary` prints the counts. The pad ↔ track test also runs in phase 1, since it only needs pad positions.
 
 **Tests**
 - `test_sexp.py`: nesting; quoted strings with spaces and escaped quotes; empty lists.
@@ -328,9 +334,9 @@ The code can check that the numbers add up. Only these steps can check that the 
 1. Open the PDF and print it at **"Actual size" / "Scale 100 %"**, **not** "Fit to page". (macOS Preview: File → Print → Scale: 100 %.)
 2. Measure the **50 mm scale bar** on the paper with the ruler.
 3. Find the **L-shaped marker** in the top-left corner of the board. Compare it with `preview.png` on screen. It must point the same way.
-4. Measure the board outline on paper. It should be 50 × 35 mm.
+4. Measure the board outline on paper. It should be 50 × 40 mm.
 
-✅ **Right:** the scale bar is 49.5–50.5 mm, the outline is 50 × 35 mm, and the L points the same way on paper and on screen.
+✅ **Right:** the scale bar is 49.5–50.5 mm, the outline is 50 × 40 mm, and the L points the same way on paper and on screen.
 ❌ **Wrong:**
 - The scale bar isn't 50 mm → the print dialog shrank it; reprint at 100 %. Still wrong → it's our bug; post on #15.
 - The L is reversed → **mirror bug**. Do not print; post on #15.
@@ -356,7 +362,7 @@ Keep the sheet. After H-C, lay the plastic board on top of it: the outlines and 
 | What | Model (mm) | Measured | OK if |
 |---|---|---|---|
 | Outline length | 50.00 | | ± 0.3 |
-| Outline width | 35.00 | | ± 0.3 |
+| Outline width | 40.00 | | ± 0.3 |
 | Total height (board + copper) | 2.60 | | ± 0.15 |
 | Copper step height (rod: top of a trace down to the board surface) | 0.60 | | ± 0.10 |
 | Trace widths 1.0 / 1.5 / 2.0 / 3.0 | as named | | ± 0.15 each |
@@ -392,15 +398,14 @@ Keep the sheet. After H-C, lay the plastic board on top of it: the outlines and 
 ✅ **Right:** every trace is under 1 Ω end to end, and every neighbouring pair shows OL.
 ❌ **Wrong:** a short means leftover tape between traces (trim again). No reading means the tape is torn. Post it on #15; it feeds the coupon results (#10).
 
-## 8. Timeline and cut lines (Saturday)
+## 8. Timeline and cut lines (Saturday, revised 10:00)
 
 | When | What |
 |---|---|
-| now → ~08:00 | Phases 0–3 on the test board + badge. This is the **MVP**. |
-| ~07:30 | H-A (slice) + H-B (paper). |
-| ~08:00 | Submit the test-board print (H-C). It prints while you sleep; whoever runs prints (#6) picks it up. |
-| 09:00 → 11:15 | Sleep. Then the 11:30 workshop and the badge app. |
-| after | Phases 4–6, measuring for H-C, H-D. Either you in gaps, or hand over to Akshat-Kalra (#29/#31 build on it anyway). Decide at 09:00 based on progress. |
+| ✅ by 10:00 | Phases 0–1 (parser + 42 tests). |
+| 10:00 → 11:30 | Phase 2 (shapes → 2D + `preview.png`), as far as it gets. |
+| 11:30 | Workshop, then the badge app (your critical path to M2 at 21:00). |
+| after | Phase 3, then H-A + H-B, then submit the test-board print (H-C). Phases 4–6 and H-D: you in gaps, or hand over to Akshat-Kalra (#29/#31 build on this anyway). Decide at 11:30 based on progress. |
 
 **MVP cut line = phases 0–3 + H-A + H-B.** If only that is done, goose v1 can still be made from Adit's hand CAD (#28), and the pitch can show the tool converting the test board and the badge.
 
