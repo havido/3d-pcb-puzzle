@@ -70,7 +70,7 @@ app/.venv/bin/python app/tools/badge.py push goose       # upload over USB, no I
 app/.venv/bin/python app/tools/badge.py img in.png app/goose/img/name.bin --size 56x56   # or drop PNGs in img/
 ```
 
-- **push** needs the badge on USB (badge off → plug → on, don't hold Start) and the IDE tab closed, because the IDE holds the serial port. It uses the IDE's own console protocol (`put`, `reload`) and uploads images too.
+- **push** needs the badge on USB (badge off → plug → on, don't hold Start) and the IDE tab closed, because the IDE holds the serial port. It uses the IDE's own console protocol (`put`, `reload`) and uploads images too. **Verified on a real badge 2026-09-19.**
 - **No terminal?** `build` also writes `app/dist/<slug>.lua`, one file for the IDE's **Import app** (code only, no images). Its line numbers differ from the sources; `build` prints where each file starts.
 - Images: widgets reference them by file name, e.g. `badge.ui.image(parent, "goose_start.bin")` for `img/goose_start.png`. RGB565A8 is 3 bytes per pixel and the app has 64 KiB **in total**, so keep sprites small; `build` warns when over budget.
 - Run `lua app/tools/test.lua` before pushing. The rules tests drive `game.lua` through a fake ui, so they don't break when screens change.
