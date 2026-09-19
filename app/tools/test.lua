@@ -181,38 +181,56 @@ do
     end
   end
 
+  local SETTLE = 150
   check(calls.screen == "start", "starts on the start screen")
-  btn(B.UP, 1)
+  btn(B.UP, 1); btn(B.UP, 2)
   check(#calls.touches == 0, "wall touches are ignored before the round starts")
 
   btn(B.A, 1)
+  check(calls.screen == "start", "A does nothing while organ A is out of its seat")
+  check(st.leds[1] and st.leds[1][1] == 255 and st.leds[1][2] == 120, "refused start blinks amber")
+  tick(700)
+  check(not st.leds[1] or st.leds[1][1] == 0, "amber blink ends")
+
+  btn(B.LEFT, 1)                       -- organ A goes into its seat
+  btn(B.A, 1)
   local round_start = st.clock
-  check(calls.screen == "operating" and calls.info.stage == "remove", "A starts a round in stage remove")
+  check(calls.screen == "operating" and calls.info.stage == "remove", "A starts a round once organ A is seated")
   check(calls.info.stars == 3, "round starts with 3 stars")
   tick(1000)
-  check(calls.time and calls.time <= 59100 and calls.time >= 59000, "timer counts down (refreshed every 100 ms) (" .. tostring(calls.time) .. ")")
+  check(calls.time and calls.time <= 59100 and calls.time >= 59000, "timer counts down (refreshed every 100 ms)")
 
   btn(B.UP, 1); btn(B.UP, 2); btn(B.UP, 1); btn(B.UP, 2)
   check(#calls.touches == 1 and calls.stars == 2, "a scrape inside the lockout counts once")
   check(st.leds[4] and st.leds[4][1] == 255, "bottom LEDs flash red on a touch")
   tick(600)
   check(st.leds[4] and st.leds[4][1] < 255, "LED flash ends")
-  btn(B.DOWN, 1)
+  btn(B.DOWN, 1); btn(B.DOWN, 2)
   check(#calls.touches == 2 and calls.touches[2] == 2, "wall 2 is a separate zone")
   check(calls.time == 60000 - (st.clock - round_start) - 10000,
         "each touch costs 5 s, shown immediately (" .. calls.time .. ")")
   tick(200)
 
+  btn(B.RIGHT, 1); tick(SETTLE + 40); btn(B.RIGHT, 2)
+  check(calls.screen == "operating", "seat B does nothing before organ A is removed")
+  btn(B.LEFT, 2); tick(60); btn(B.LEFT, 1); tick(SETTLE + 40)
+  check(calls.info.stage == "remove", "a wobble shorter than the settle time doesn't remove organ A")
+  btn(B.LEFT, 2); tick(SETTLE + 40)
+  check(calls.info.stage == "deliver", "lifting organ A for the settle time moves to stage deliver")
+
+  btn(B.RIGHT, 1); tick(60); btn(B.RIGHT, 2); tick(SETTLE + 40)
+  check(calls.screen == "operating", "a brief brush on seat B (tweezers) doesn't win")
   btn(B.RIGHT, 1)
-  check(calls.screen == "operating", "delivering before removing does nothing")
-  btn(B.LEFT, 1); btn(B.LEFT, 2)
-  check(calls.info.stage == "deliver", "lifting organ A moves to stage deliver")
-  btn(B.RIGHT, 1)
-  check(calls.screen == "success", "seating organ B wins")
-  check(st.store.best_ms and st.store.best_ms > 0, "best time is saved")
+  local delivered_at = st.clock
+  tick(SETTLE + 40)
+  check(calls.screen == "success", "seating organ B for the settle time wins")
+  check(st.store.best_ms == delivered_at - round_start, "best time counts to the moment of contact")
   check(st.leds[1] and st.leds[1][2] > 0, "success lights green")
 
+  btn(B.RIGHT, 2)
   btn(B.A, 1)
+  check(calls.screen == "success", "retry is refused until organ A is back in its seat")
+  btn(B.LEFT, 1); btn(B.A, 1)
   check(calls.screen == "operating" and calls.info.stars == 3 and calls.info.stage == "remove", "A retries with a fresh round")
   tick(61000)
   check(calls.screen == "failure", "running out of time fails")

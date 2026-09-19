@@ -13,6 +13,10 @@ local START_STARS = 3          -- a wall touch costs one; 0 stars = failure
 local LOCKOUT_MS = 500         -- one scrape = one penalty per wall zone
 local TIME_UPDATE_MS = 100     -- how often the timer display is refreshed
 local LED_FLASH_MS = 300       -- red flash on a touch
+local SEAT_SETTLE_MS = 150     -- a seat must stay open/closed this long to count;
+                               -- stops a wobbling organ or a tweezer brush on a
+                               -- seat pad (tweezers are GND too) from counting
+local REQUIRE_SEATED = true    -- A starts a round only with organ A in its seat
 
 local B = badge.input.BUTTON
 local K = badge.input.KIND
@@ -26,6 +30,12 @@ local LINES = {
   [B.RIGHT] = { kind = "seat_b" },   -- pressed when organ B is delivered
 }
 
+local SEAT_A, SEAT_B
+for button, line in pairs(LINES) do
+  if line.kind == "seat_a" then SEAT_A = button end
+  if line.kind == "seat_b" then SEAT_B = button end
+end
+
 -- State ----------------------------------------------------------------------
 local ui
 local screen = "start"             -- start | operating | success | failure
@@ -35,6 +45,8 @@ local locked_until = {}            -- wall zone -> ms
 local next_time_update = 0
 local best_ms = 0                  -- fastest success, 0 = none yet
 local flash_until = 0
+local down = {}                    -- goose line -> true while pressed (from events)
+local changed_at = {}              -- goose line -> ms of its last press/release
 
 -- LEDs -----------------------------------------------------------------------
 -- 1 upper left, 2 upper right, 3 middle right, 4 bottom right, 5 bottom left,
@@ -55,6 +67,12 @@ local function idle_leds()
   elseif screen == "success" then leds(0, 120, 0)
   elseif screen == "failure" then leds(120, 0, 0)
   else leds(0, 0, 0) end
+end
+
+-- Show a colour for ms, then fall back to the screen's idle colours.
+local function flash(r, g, b, only_bottom, ms, now)
+  leds(r, g, b, only_bottom)
+  flash_until = now + ms
 end
 
 -- Helpers --------------------------------------------------------------------
@@ -102,9 +120,23 @@ local function wall_touch(zone, now)
   ui.touch(zone)
   ui.set_stars(math.max(0, stars))
   ui.set_time(math.max(0, time_left(now)))   -- show the time jump right away
-  leds(255, 0, 0, true)
-  flash_until = now + LED_FLASH_MS
+  flash(255, 0, 0, true, LED_FLASH_MS, now)
   if stars <= 0 then finish(false, now) end
+end
+
+-- True when a line has been in the given state for at least SEAT_SETTLE_MS.
+local function settled(button, want_down, now)
+  return (down[button] or false) == want_down
+     and now - (changed_at[button] or 0) >= SEAT_SETTLE_MS
+end
+
+local function check_seats(now)
+  if stage == "remove" and settled(SEAT_A, false, now) then
+    stage = "deliver"
+    ui.show("operating", info(now))
+  elseif stage == "deliver" and settled(SEAT_B, true, now) then
+    finish(true, changed_at[SEAT_B])   -- time the win from the actual contact
+  end
 end
 
 -- Driver interface (called by main.lua) --------------------------------------
@@ -120,6 +152,8 @@ function M.tick(now)
     idle_leds()
   end
   if screen ~= "operating" then return end
+  check_seats(now)
+  if screen ~= "operating" then return end
   if time_left(now) <= 0 then
     finish(false, now)
   elseif now >= next_time_update then
@@ -130,20 +164,24 @@ end
 
 function M.button(button, kind, now)
   local line = LINES[button]
-  if screen == "operating" and line then
-    if line.kind == "wall" and kind == K.PRESSED then
+  if line then
+    -- Track every goose line on every screen, so the seat state is known
+    -- before a round starts. Seats are acted on in tick, once settled.
+    down[button] = kind == K.PRESSED
+    changed_at[button] = now
+    if screen == "operating" and line.kind == "wall" and kind == K.PRESSED then
       wall_touch(line.zone, now)
-    elseif line.kind == "seat_a" and kind == K.RELEASED and stage == "remove" then
-      stage = "deliver"
-      ui.show("operating", info(now))
-    elseif line.kind == "seat_b" and kind == K.PRESSED and stage == "deliver" then
-      finish(true, now)
     end
     return
   end
 
   if kind ~= K.PRESSED or screen == "operating" then return end
   if button == B.A then
+    if REQUIRE_SEATED and not down[SEAT_A] then
+      badge.sys.log("start refused: organ A is not in its seat")
+      flash(255, 120, 0, false, 600, now)   -- amber: put the organ back first
+      return
+    end
     new_round(now)
   elseif button == B.B then
     badge.app.exit()
