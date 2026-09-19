@@ -188,7 +188,8 @@ do
   check(calls.screen == "start", "A does nothing while organ A is out of its seat")
   check(st.leds[1] and st.leds[1][1] == 255 and st.leds[1][2] == 120, "refused start blinks amber")
   tick(700)
-  check(not st.leds[1] or st.leds[1][1] == 0, "amber blink ends")
+  check(not (st.leds[1][1] == 255 and st.leds[1][2] == 120), "amber blink ends")
+  check(st.leds[1][1] > 0 and st.leds[1][3] == 0, "start screen breathes yellow")
 
   btn(B.LEFT, 1)                       -- organ A goes into its seat
   btn(B.A, 1)
@@ -201,7 +202,7 @@ do
   check(#calls.touches == 1, "a scrape inside the lockout counts once")
   check(st.leds[4] and st.leds[4][1] == 255, "bottom LEDs flash red on a touch")
   tick(600)
-  check(st.leds[4] and st.leds[4][1] < 255, "LED flash ends")
+  check(st.leds[4] and st.leds[4][2] > 0, "touch flash ends (countdown colour is back)")
   btn(B.DOWN, 1); btn(B.DOWN, 2)
   check(#calls.touches == 2 and calls.touches[2] == 2, "wall 2 is a separate zone")
   check(calls.time == 60000 - (st.clock - round_start) - 10000,
@@ -214,6 +215,7 @@ do
   check(calls.info.stage == "remove", "a wobble shorter than the settle time doesn't remove organ A")
   btn(B.LEFT, 2); tick(SETTLE + 40)
   check(calls.info.stage == "deliver", "lifting organ A for the settle time moves to stage deliver")
+  check(st.leds[1][2] > 0 or st.leds[1][1] > 0, "LEDs are on after the stage change")
 
   btn(B.RIGHT, 1); tick(60); btn(B.RIGHT, 2); tick(SETTLE + 40)
   check(calls.screen == "operating", "a brief brush on seat B (tweezers) doesn't win")
@@ -222,7 +224,11 @@ do
   tick(SETTLE + 40)
   check(calls.screen == "success", "seating organ B for the settle time wins")
   check(st.store.best_ms == delivered_at - round_start, "best time counts to the moment of contact")
-  check(st.leds[1] and st.leds[1][2] > 0, "success lights green")
+  local lit = 0
+  for i = 1, 6 do if st.leds[i][2] == 255 then lit = lit + 1 end end
+  check(lit == 1 and st.leds[1][1] == 0, "success starts a green chase (one bright LED)")
+  tick(2100)
+  check(st.leds[3][2] == 160 and st.leds[6][2] == 160, "chase ends in solid green")
 
   btn(B.RIGHT, 2)
   btn(B.A, 1)
@@ -238,6 +244,50 @@ do
 
   btn(B.B, 1)
   check(st.exited, "B quits from the result screen")
+end
+
+-- 3. LED countdown ------------------------------------------------------------
+print("game.lua LEDs")
+do
+  local st = new_badge()
+  local B = st.badge.input.BUTTON
+  local noop = function() end
+  local fake_ui = { init = noop, tick = noop, show = noop, set_time = noop, touch = noop }
+  local f = assert(io.open(dist .. "goose_doctor/game.lua", "r"))
+  local game = assert(load(f:read("a"), "@game.lua", "t", sandbox(st.badge)))()
+  f:close()
+  local function tick(ms)
+    local stop = st.clock + ms
+    while st.clock < stop do
+      st.clock = st.clock + 20
+      game.tick(st.clock)
+    end
+  end
+  local function lit()
+    local n = 0
+    for i = 1, 6 do if st.leds[i] and st.leds[i][1] > 0 then n = n + 1 end end
+    return n
+  end
+  game.start(fake_ui, st.clock)
+  game.button(B.LEFT, 1, st.clock)
+  game.button(B.A, 1, st.clock)
+  tick(100)
+  check(lit() == 6 and st.leds[1][2] == 180, "full time: all 6 LEDs yellow")
+  tick(25000)                      -- 35 s left of 60
+  check(lit() == 4 and st.leds[1][2] == 180, "35 s left: 4 LEDs, still yellow (" .. lit() .. ")")
+  tick(10000)                      -- 25 s left
+  check(lit() == 3 and st.leds[1][2] == 90, "25 s left: 3 LEDs, orange (" .. lit() .. ")")
+  tick(14000)                      -- 11 s left
+  check(lit() == 2 and st.leds[1][2] == 0, "11 s left: 2 LEDs, red (" .. lit() .. ")")
+  tick(1500)                       -- 9.5 s left: warning mode
+  local seen_on, seen_off = false, false
+  for _ = 1, 30 do
+    tick(20)
+    if lit() == 6 then seen_on = true elseif lit() == 0 then seen_off = true end
+  end
+  check(seen_on and seen_off, "last 10 s: all LEDs blink red")
+  game.button(B.UP, 1, st.clock)
+  check(st.leds[4][1] == 255 and st.leds[5][1] == 255, "a touch lights the bottom LEDs red even while blinking")
 end
 
 print(failures == 0 and "ALL TESTS PASSED" or (failures .. " FAILED"))

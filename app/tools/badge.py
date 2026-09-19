@@ -196,7 +196,13 @@ def find_port():
 class Console:
     def __init__(self, port):
         import serial
-        self.s = serial.Serial(port, 115200, timeout=0.05)
+        try:
+            self.s = serial.Serial(port, 115200, timeout=0.05)
+        except serial.SerialException as e:
+            if "busy" in str(e).lower():
+                sys.exit(f"{port} is busy: close the badge IDE tab (it holds the port, even "
+                         "when disconnected) or any serial monitor, then try again.")
+            raise
         self.buf = ""
 
     def line(self, text):
