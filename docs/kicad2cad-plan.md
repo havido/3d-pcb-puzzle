@@ -4,7 +4,7 @@ Turn **any** KiCad board file (`.kicad_pcb`) into a 3D-printable 3DPCB board wit
 
 - Ticket: #15, "Generator v1". Its outputs feed #29 (cutter plate), #31 (design checks) and #16 (on-screen goose map).
 - Owner: havido (#15).
-- **Status (Sat 10:00): phases 0–1 done on branch `feat/kicad2cad`, 42 tests passing.** Next: phase 2.
+- **Status (Sat 10:30): phases 0–2 done on branch `feat/kicad2cad`, 60 tests passing.** Next: phase 3 (3D + export).
 - Written 2026-09-19. The golden numbers below were measured from `Archive 2/badge.kicad_pcb`.
 
 ## 1. Goal, scope, definition of done
@@ -68,13 +68,16 @@ class Drill:
     net: str | None
 
 @dataclass
-class Board2D:
-    source: str                              # file path + sha256
+class Board2D:                               # built by shapes.to_board2d(KicadBoard)
+    source: str                              # file path
     outline: Polygon                         # board shape; interior cut-outs are its holes
-    copper: dict[str, list[CopperFeature]]   # per copper layer
+    copper: dict[str, list[CopperFeature]]   # per copper layer, one entry per feature (net-aware tools)
+    merged: dict[str, MultiPolygon]          # per copper layer: union − drills, clipped to the outline (what gets printed)
     drills: list[Drill]
+    holes: MultiPolygon                      # every drill as a shape (round or oval)
     user_layers: dict[str, MultiPolygon]     # e.g. "User.1" → goose channels
     warnings: list[str]
+    markers: list[tuple[float, float, str]]  # where a warning applies (drawn in preview.png)
 ```
 
 ### Recipe (every tunable number lives here; `CLAUDE.md` rule)
@@ -212,7 +215,7 @@ Each phase ends with something you can run and check. Times are for one person n
 
 **Verify:** `python -m kicad2cad "Archive 2/badge.kicad_pcb" --summary` prints exactly the counts in §5.
 
-### Phase 2: shapes → 2D (60–90 min)
+### Phase 2: shapes → 2D (60–90 min): ✅ done
 - [ ] **Track:** `LineString([a, b]).buffer(w/2)`. Round ends match how KiCad draws tracks.
 - [ ] **Arc:** find the circle through start/mid/end, sample it at `arc_chord_mm`, then buffer.
 - [ ] **Pads:**
@@ -225,7 +228,7 @@ Each phase ends with something you can run and check. Times are for one person n
 
   Place each pad with the rotation rule in §5.
 - [ ] **Via:** a circle. **Zone:** its filled polygons. **Graphics:** buffer lines and arcs by their stroke width; add filled shapes.
-- [ ] **Per copper layer:** `unary_union` (one call, not a loop) → subtract drills → clip to the outline.
+- [x] **Per copper layer:** `unary_union` (one call, not a loop) → subtract drills → clip to the outline. Copper outside the board edge is dropped **with a warning** (the badge's display footprint U10 sits off-board: 18 mm²).
 - [ ] `preview.png`: top view. Outline in grey, copper in orange, drills in white, warnings marked with red circles. Scale bar and a "TOP VIEW (as in KiCad)" label.
 
 **Tests**
@@ -403,7 +406,7 @@ Keep the sheet. After H-C, lay the plastic board on top of it: the outlines and 
 | When | What |
 |---|---|
 | ✅ by 10:00 | Phases 0–1 (parser + 42 tests). |
-| 10:00 → 11:30 | Phase 2 (shapes → 2D + `preview.png`), as far as it gets. |
+| ✅ by 10:30 | Phase 2 (shapes → 2D + `preview.png`, 60 tests). |
 | 11:30 | Workshop, then the badge app (your critical path to M2 at 21:00). |
 | after | Phase 3, then H-A + H-B, then submit the test-board print (H-C). Phases 4–6 and H-D: you in gaps, or hand over to Akshat-Kalra (#29/#31 build on this anyway). Decide at 11:30 based on progress. |
 

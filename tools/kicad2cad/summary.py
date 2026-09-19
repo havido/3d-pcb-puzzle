@@ -2,9 +2,10 @@
 from collections import Counter
 
 from .model import KicadBoard
+from .shapes import Board2D
 
 
-def summarize(b: KicadBoard) -> dict:
+def summarize(b: KicadBoard, b2d: Board2D | None = None) -> dict:
     x0, y0, x1, y1 = b.outline.bounds
     holes = []
     for ring in b.outline.interiors:
@@ -21,6 +22,9 @@ def summarize(b: KicadBoard) -> dict:
             "zones": [{"net": z.net, "filled_polygons": len(z.polygons)} for z in b.zones if z.layer == layer],
             "graphics": dict(Counter(g.kind for g in b.graphics if g.layer == layer)),
         }
+        if b2d is not None:
+            per_layer[layer]["copper_area_mm2"] = round(b2d.merged[layer].area, 3)
+            per_layer[layer]["copper_pieces"] = len(b2d.merged[layer].geoms)
     return {
         "source": b.source,
         "sha256": b.sha256,
@@ -39,7 +43,7 @@ def summarize(b: KicadBoard) -> dict:
                    "plated": sum(1 for d in b.drills if d.plated)},
         "keepouts_ignored": b.keepouts,
         "user_layers": {k: len(v) for k, v in b.user_layers.items()},
-        "warnings": b.warnings,
+        "warnings": b2d.warnings if b2d is not None else b.warnings,
     }
 
 
@@ -56,6 +60,8 @@ def format_summary(s: dict) -> str:
         z = ", ".join(f"{zz['net']} ({zz['filled_polygons']} filled)" for zz in c["zones"]) or "none"
         lines.append(f"{layer:<9} {c['segments']} segments, {c['arcs']} arcs, {c['pads']} pads, "
                      f"{c['vias']} vias | zones: {z} | graphics: {g}")
+        if "copper_area_mm2" in c:
+            lines.append(f"{'':<9} copper {c['copper_area_mm2']} mm² in {c['copper_pieces']} separate piece(s), drills removed")
     lines.append("pads      " + ", ".join(f"{k} {v}" for k, v in sorted(s["pad_shapes"].items())))
     lines.append("vias      " + (", ".join(f"{k} x{v}" for k, v in s["vias_by_size_drill"].items()) or "none"))
     d = s["drills"]

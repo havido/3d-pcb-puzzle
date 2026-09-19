@@ -15,7 +15,7 @@ def place(fx: float, fy: float, frot: float, px: float, py: float) -> Point:
     return fx + px * c + py * s, fy - px * s + py * c
 
 
-def _step(r: float, max_err: float) -> float:
+def angle_step(r: float, max_err: float) -> float:
     """Largest angle step whose chord stays within `max_err` of the true circle."""
     if r <= max_err:
         return math.pi / 2
@@ -46,7 +46,7 @@ def arc_points(start: Point, mid: Point, end: Point, max_err: float) -> list[Poi
     sweep_end = (a1 - a0) % (2 * math.pi)
     sweep_mid = (am - a0) % (2 * math.pi)
     total = sweep_end if sweep_mid <= sweep_end else sweep_end - 2 * math.pi
-    n = max(2, math.ceil(abs(total) / _step(r, max_err)))
+    n = max(2, math.ceil(abs(total) / angle_step(r, max_err)))
     pts = [(cx + r * math.cos(a0 + total * i / n), cy + r * math.sin(a0 + total * i / n)) for i in range(n + 1)]
     pts[0], pts[-1] = start, end
     return pts
@@ -54,6 +54,6 @@ def arc_points(start: Point, mid: Point, end: Point, max_err: float) -> list[Poi
 
 def circle_points(cx: float, cy: float, r: float, max_err: float) -> list[Point]:
     """Closed ring (first point repeated at the end) approximating a circle."""
-    n = max(8, math.ceil(2 * math.pi / _step(r, max_err)))
+    n = max(8, math.ceil(2 * math.pi / angle_step(r, max_err)))
     pts = [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
     return pts + [pts[0]]

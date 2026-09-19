@@ -94,3 +94,4 @@ class KicadBoard:
     drills: list[Drill] = field(default_factory=list)
     keepouts: int = 0
     warnings: list[str] = field(default_factory=list)
+    markers: list[tuple[float, float, str]] = field(default_factory=list)   # where a warning applies, for the preview

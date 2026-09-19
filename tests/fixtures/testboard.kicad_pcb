@@ -35,7 +35,7 @@
   (gr_line (start 100 140) (end 100 100) (stroke (width 0.05) (type solid)) (layer "Edge.Cuts"))
   (gr_circle (center 144 129) (end 147 129) (stroke (width 0.05) (type solid)) (fill no) (layer "Edge.Cuts"))
   (gr_poly (pts (xy 102 102) (xy 104 102) (xy 104 110) (xy 108 110) (xy 108 112) (xy 102 112)) (stroke (width 0) (type solid)) (fill yes) (layer "F.Cu"))
-  (gr_rect (start 105 134.5) (end 125 138.5) (stroke (width 0.1) (type solid)) (fill yes) (layer "User.1"))
+  (gr_rect (start 105 134.5) (end 125 138.5) (stroke (width 0) (type solid)) (fill yes) (layer "User.1"))
   (gr_text "HONK" (at 140 137 0) (layer "F.Cu") (effects (font (size 1.5 1.5) (thickness 0.3))))
   (segment (start 112 103) (end 137 103) (width 1) (layer "F.Cu") (net 2))
   (segment (start 112 107) (end 137 107) (width 1.5) (layer "F.Cu") (net 3))

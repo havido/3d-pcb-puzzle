@@ -45,6 +45,7 @@ class _Reader:
     def __init__(self, tree, source, sha, chord):
         self.tree, self.source, self.sha, self.chord = tree, source, sha, chord
         self.warnings: list[str] = []
+        self.markers: list[tuple[float, float, str]] = []
         self.nets = {n[1]: n[2] for n in find(tree, "net") if len(n) >= 3}
         layers = first(tree, "layers") or []
         self.copper = [l[1] for l in layers[1:] if isinstance(l, list) and l[1].endswith(".Cu")] or ["F.Cu", "B.Cu"]
@@ -52,8 +53,10 @@ class _Reader:
         self.edge_rings: list[Polygon] = []
 
     # ---- helpers -------------------------------------------------------------------------
-    def warn(self, msg: str):
+    def warn(self, msg: str, at: tuple[float, float] | None = None):
         self.warnings.append(msg)
+        if at is not None:
+            self.markers.append((at[0], at[1], msg))
 
     def net(self, node) -> str | None:
         n = first(node, "net")
@@ -130,6 +133,7 @@ class _Reader:
         self.read_zones(board)
         board.outline = self.build_outline()
         board.warnings = self.warnings
+        board.markers = self.markers
         return board
 
     def add_shape(self, board, node, kind, layer, tf=None):
@@ -154,7 +158,8 @@ class _Reader:
         for kind in ("gr_text", "gr_text_box"):
             for node in find(self.tree, kind):
                 if value(node, "layer", "") in self.copper:
-                    self.warn(f"{kind} '{_preview(node[1])}' on {value(node, 'layer')} is not converted (text needs font outlines)")
+                    self.warn(f"{kind} '{_preview(node[1])}' on {value(node, 'layer')} is not converted (text needs font outlines)",
+                              xy(first(node, "at")))
 
     def read_tracks(self, board):
         for node in find(self.tree, "segment"):
@@ -188,7 +193,9 @@ class _Reader:
                     self.add_shape(board, node, kind, value(node, "layer", ""), tf)
             for node in find(fp, "fp_text"):
                 if value(node, "layer", "") in self.copper:
-                    self.warn(f"text '{_preview(node[2])}' on {value(node, 'layer')} in {ref} is not converted")
+                    at = first(node, "at")
+                    self.warn(f"text '{_preview(node[2])}' on {value(node, 'layer')} in {ref} is not converted",
+                              place(fx, fy, frot, float(at[1]), float(at[2])) if at else None)
 
     def read_pad(self, board, node, ref, fx, fy, frot):
         number, kind, shape = node[1], node[2], node[3]
@@ -209,7 +216,7 @@ class _Reader:
             drill = Drill(dx, dy, dw, dh, angle, kind != "np_thru_hole", net)
             board.drills.append(drill)
         if shape in ("custom", "trapezoid"):
-            self.warn(f"pad {ref}.{number}: {shape} shape is approximated by its bounding shape")
+            self.warn(f"pad {ref}.{number}: {shape} shape is approximated by its bounding shape", (x, y))
         board.pads.append(Pad(ref, number, kind, shape, x, y, angle, frot, float(size[1]), float(size[2]),
                               float(value(node, "roundrect_rratio", "0")),
                               self.expand_layers((first(node, "layers") or ["layers"])[1:]), net, drill))

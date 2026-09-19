@@ -72,7 +72,7 @@ def board_text() -> str:
     pts = " ".join(f"(xy {x} {y})" for x, y in L_MARKER)
     graphics = [
         f'(gr_poly (pts {pts}) {stroke(0)} (fill yes) (layer "F.Cu"))',
-        f'(gr_rect (start {f(CHANNEL[0][0])} {f(CHANNEL[0][1])}) (end {f(CHANNEL[1][0])} {f(CHANNEL[1][1])}) {stroke(0.1)} (fill yes) (layer "User.1"))',
+        f'(gr_rect (start {f(CHANNEL[0][0])} {f(CHANNEL[0][1])}) (end {f(CHANNEL[1][0])} {f(CHANNEL[1][1])}) {stroke(0)} (fill yes) (layer "User.1"))',
         '(gr_text "HONK" (at 140 137 0) (layer "F.Cu") (effects (font (size 1.5 1.5) (thickness 0.3))))',
     ]
     tracks = [f'(segment (start {f(TRACK_X[0])} {f(y)}) (end {f(TRACK_X[1])} {f(y)}) (width {f(w)}) (layer "F.Cu") {net(f"T{i + 1}")})'

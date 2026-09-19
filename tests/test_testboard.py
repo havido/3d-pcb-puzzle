@@ -44,3 +44,16 @@ def test_rotated_footprint_pad_positions(testboard, expected):
 def test_hole_sizes(testboard, expected):
     npth = sorted(d.w for d in testboard.drills if not d.plated)
     assert npth == expected["hole_diameters"]
+
+
+def test_copper_area_matches_hand_computed(expected):
+    from kicad2cad import load
+    from kicad2cad.shapes import to_board2d
+    fine = 0.001
+    b2d = to_board2d(load(FIXTURES / "testboard.kicad_pcb", arc_chord_mm=fine), chord=fine)
+    fcu = b2d.merged["F.Cu"]
+    assert fcu.area == pytest.approx(expected["copper_area_total_mm2"], rel=5e-4)
+    assert len(fcu.geoms) == 13                     # the 13 features never touch each other
+    assert b2d.user_layers["User.1"].area == pytest.approx(expected["user1_area_mm2"])
+    assert b2d.outline.buffer(1e-6).contains(fcu)
+    assert len(b2d.holes.geoms) == expected["counts"]["drills"]

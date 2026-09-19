@@ -3,6 +3,7 @@ import math
 from collections import Counter, defaultdict
 
 import pytest
+from shapely.geometry import Point
 
 from kicad2cad.summary import summarize
 
@@ -68,3 +69,38 @@ def test_pads_land_on_their_tracks(badge):
             hits += 1
             rotated += p.fp_angle % 180 != 0
     assert hits >= 331 and rotated >= 148, (hits, rotated)
+
+
+@pytest.fixture(scope="module")
+def badge2d(badge):
+    from kicad2cad.shapes import to_board2d
+    return to_board2d(badge)
+
+
+def test_copper_is_valid_and_inside_the_board(badge2d):
+    for layer in ("F.Cu", "B.Cu"):
+        g = badge2d.merged[layer]
+        assert g.is_valid and g.area > 0
+        assert badge2d.outline.buffer(1e-6).contains(g)
+
+
+def test_every_smd_pad_and_track_is_covered_by_copper(badge, badge2d):
+    """Everything on the board ends up as copper, except where a drill removes it."""
+    fcu = badge2d.merged["F.Cu"].buffer(1e-6)
+    on_board = lambda pt: badge.outline.contains(pt) and not badge2d.holes.contains(pt)
+    smd = [Point(p.x, p.y) for p in badge.pads if p.kind == "smd" and "F.Cu" in p.layers]
+    mids = [Point((t.start[0] + t.end[0]) / 2, (t.start[1] + t.end[1]) / 2) for t in badge.tracks if t.layer == "F.Cu"]
+    for pts, n_on_board in ((smd, 292), (mids, 604)):   # 304 − 12 off-board display pads; 634 − 30 midpoints in drills
+        kept = [pt for pt in pts if on_board(pt)]
+        assert len(kept) == n_on_board and all(fcu.contains(pt) for pt in kept)
+
+
+def test_off_board_copper_is_reported_not_silently_dropped(badge2d):
+    msg = [w for w in badge2d.warnings if w.startswith("F.Cu:") and "outside the board edge" in w]
+    assert len(msg) == 1 and "U10" in msg[0]
+
+
+def test_drilled_pads_have_holes(badge, badge2d):
+    fcu = badge2d.merged["F.Cu"]
+    drilled = [p for p in badge.pads if p.drill is not None and "F.Cu" in p.layers]
+    assert drilled and not any(fcu.contains(Point(p.drill.x, p.drill.y)) for p in drilled)
