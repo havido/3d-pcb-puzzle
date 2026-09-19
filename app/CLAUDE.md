@@ -57,7 +57,7 @@ app/
 - Every tunable number (round time, penalty, lockout, LED colours) is a named constant at the top of `game.lua`.
 - **Two apps from one folder** (`TARGETS` in `tools/badge.py`, which also holds the manifests):
   - `goose` → **Goose Doctor** (`goose_doctor`): the real game, driver = `game.lua`.
-  - `preview` → **Goose UI Preview** (`goose_preview`): driver = `preview.lua`, a fake game for building screens without the goose. A next screen, LEFT previous, B / RIGHT touch wall 1 / 2, UP / DOWN stars, START switches stage, and a fake timer.
+  - `preview` → **Goose UI Preview** (`goose_preview`): driver = `preview.lua`, a fake game for building screens without the goose. A next screen, LEFT previous, B / RIGHT touch wall 1 / 2, START switches stage, and a fake timer.
   - `main.lua` does `require("driver")`; the build generates `driver.lua` pointing at the right one.
 
 ## Workflow
@@ -83,11 +83,10 @@ The full spec (argument ranges, when each call happens) is the header comment of
 -- game.lua calls these; ui.lua implements them.
 ui.init(root)              -- build every widget once, in on_enter
 ui.show(screen, info)      -- "start" | "operating" | "success" | "failure"
-                           -- info = { time_left_ms >= 0, stars 0..5,
-                           --          stage "remove" | "deliver", best_ms (nil = no best yet) }
+                           -- info = { time_left_ms >= 0, stage "remove" | "deliver",
+                           --          best_ms (nil = no best yet) }
                            -- also called again on "operating" when the stage changes
 ui.set_time(time_left_ms)  -- every 100 ms while operating, and at once on a touch
-ui.set_stars(n)            -- stars left after a wall touch, n >= 0
 ui.touch(zone)             -- 1 | 2: flinch + show which wall; at most once per zone per 500 ms
 ui.tick(now_ms)            -- every ~20 ms; advance animations, return within a few ms
 ```
@@ -96,7 +95,7 @@ Drivers (`game.lua`, `preview.lua`) implement `start(ui, now)`, `tick(now)`, `bu
 
 Buttons: A = Start/Retry, B = Quit (from start/success/failure), HOME always exits. `ui.lua` never reads buttons; the game's LEDs belong to `game.lua`.
 
-**`lua app/tools/test.lua` enforces the contract.** It checks that `ui.lua` has all six functions and survives every screen, stage and edge value (0 stars, no best time, 0 ms). If it fails on `ui.lua`, fix `ui.lua`; don't loosen the test.
+**`lua app/tools/test.lua` enforces the contract.** It checks that `ui.lua` has all five functions and survives every screen, stage and edge value (no best time, 0 ms). If it fails on `ui.lua`, fix `ui.lua`; don't loosen the test.
 
 **Changing the contract needs both of us.** Then, in the same commit, update the header of `ui.lua`, this section, `preview.lua` and `game.lua` if they use it, and the contract test in `tools/test.lua`.
 

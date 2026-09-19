@@ -11,7 +11,6 @@
 --       screen: "start" | "operating" | "success" | "failure"
 --       info (always a table):
 --         time_left_ms  integer >= 0    countdown remaining
---         stars         integer 0..5    stars left
 --         stage         "remove" | "deliver"   (which organ job is on)
 --         best_ms       integer or nil  fastest win so far, nil = none yet
 --       Called on every screen change, and again when the stage changes
@@ -19,8 +18,6 @@
 --   M.set_time(ms)
 --       Countdown changed, ms >= 0. Called every 100 ms while operating, and
 --       immediately after a wall touch (the time jumps down).
---   M.set_stars(n)
---       Stars left after a wall touch, n >= 0.
 --   M.touch(zone)
 --       The tweezers hit a wall. zone is 1 or 2. Play the flinch/flash here.
 --       Called at most once per zone per half second.
@@ -42,7 +39,7 @@ local INK = 0x111111      -- text on light backgrounds
 local FLASH_MS = 250      -- how long the red "touch" overlay stays up
 
 local screens = {}        -- name -> full-screen box
-local timer_label, stars_label, stage_label, best_label
+local timer_label, stage_label, best_label
 local flash_box, flash_label
 local flash_until = 0
 
@@ -103,8 +100,6 @@ function M.init(root)
   timer_label:align("center", 0, 0)
   stage_label = text(s, "", 18)
   stage_label:align("top_mid", 0, 126)
-  stars_label = text(s, "", 24)
-  stars_label:align("bottom_left", 16, -20)
 
   -- success
   s = screen(root, "success", GREEN)
@@ -138,7 +133,6 @@ function M.show(name, info)
   info = info or {}
   if name == "operating" then
     M.set_time(info.time_left_ms or 0)
-    M.set_stars(info.stars or 0)
     stage_label:set_text(info.stage == "deliver" and "Deliver the new organ"
                          or "Remove the organ")
   elseif name == "success" then
@@ -148,10 +142,6 @@ end
 
 function M.set_time(ms)
   timer_label:set_text(fmt_time(ms))
-end
-
-function M.set_stars(n)
-  stars_label:set_text(string.rep("* ", n))
 end
 
 function M.touch(zone)

@@ -1,8 +1,8 @@
 -- game.lua: rules of Goose Doctor. Owner: @Akshat-Kalra.
 -- Reads the goose's copper lines (D-pad button events), runs the stages and
 -- the countdown, drives the LEDs, and tells ui.lua what to show. Never
--- creates widgets. v0: rules are placeholders until the open questions on #40
-
+-- creates widgets. A round fails only when time runs out; each wall touch
+-- costs TOUCH_PENALTY_MS (stars were dropped, see #40).
 
 local M = {}
 
@@ -80,8 +80,7 @@ local function time_left(now)
 end
 
 local function info(now)
-  return { time_left_ms = math.max(0, time_left(now)), 
-           stage = stage, 
+  return { time_left_ms = math.max(0, time_left(now)), stage = stage,
            best_ms = best_ms > 0 and best_ms or nil }
 end
 
@@ -115,7 +114,7 @@ local function wall_touch(zone, now)
   if now < (locked_until[zone] or 0) then return end
   locked_until[zone] = now + LOCKOUT_MS
   penalty_ms = penalty_ms + TOUCH_PENALTY_MS
-  badge.sys.log("touch wall " .. zone .. )
+  badge.sys.log("touch wall " .. zone)
   ui.touch(zone)
   ui.set_time(math.max(0, time_left(now)))   -- show the time jump right away
   flash(255, 0, 0, true, LED_FLASH_MS, now)
@@ -140,7 +139,7 @@ end
 function M.start(the_ui, now)
   ui = the_ui
   best_ms = badge.store.get_int("best_ms", 0)
-  go("start", now)s
+  go("start", now)
 end
 
 function M.tick(now)

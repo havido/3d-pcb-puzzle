@@ -133,19 +133,18 @@ do
   local f = assert(io.open(dist .. "goose_doctor/ui.lua", "r"))
   local ui = assert(load(f:read("a"), "@ui.lua", "t", env))()
   f:close()
-  for _, fn in ipairs({ "init", "show", "set_time", "set_stars", "touch", "tick" }) do
+  for _, fn in ipairs({ "init", "show", "set_time", "touch", "tick" }) do
     check(type(ui[fn]) == "function", "ui." .. fn .. " must be a function")
   end
   local ok, err = pcall(function()
     ui.init({})
     for _, name in ipairs({ "start", "operating", "success", "failure" }) do
       for _, stage in ipairs({ "remove", "deliver" }) do
-        ui.show(name, { time_left_ms = 59999, stars = 3, stage = stage, best_ms = 12340 })
-        ui.show(name, { time_left_ms = 0, stars = 0, stage = stage, best_ms = nil })
+        ui.show(name, { time_left_ms = 59999, stage = stage, best_ms = 12340 })
+        ui.show(name, { time_left_ms = 0, stage = stage, best_ms = nil })
       end
     end
     for _, ms in ipairs({ 0, 1, 9999, 60000, 3599999 }) do ui.set_time(ms) end
-    for n = 0, 5 do ui.set_stars(n) end
     ui.touch(1)
     ui.touch(2)
     for now = 0, 2000, 20 do ui.tick(now) end
@@ -164,7 +163,6 @@ do
     tick = function() end,
     show = function(name, info) calls.screen, calls.info = name, info end,
     set_time = function(ms) calls.time = ms end,
-    set_stars = function(n) calls.stars = n end,
     touch = function(zone) calls.touches[#calls.touches + 1] = zone end,
   }
   local env = sandbox(st.badge)
@@ -196,12 +194,11 @@ do
   btn(B.A, 1)
   local round_start = st.clock
   check(calls.screen == "operating" and calls.info.stage == "remove", "A starts a round once organ A is seated")
-  check(calls.info.stars == 3, "round starts with 3 stars")
   tick(1000)
   check(calls.time and calls.time <= 59100 and calls.time >= 59000, "timer counts down (refreshed every 100 ms)")
 
   btn(B.UP, 1); btn(B.UP, 2); btn(B.UP, 1); btn(B.UP, 2)
-  check(#calls.touches == 1 and calls.stars == 2, "a scrape inside the lockout counts once")
+  check(#calls.touches == 1, "a scrape inside the lockout counts once")
   check(st.leds[4] and st.leds[4][1] == 255, "bottom LEDs flash red on a touch")
   tick(600)
   check(st.leds[4] and st.leds[4][1] < 255, "LED flash ends")
@@ -231,13 +228,13 @@ do
   btn(B.A, 1)
   check(calls.screen == "success", "retry is refused until organ A is back in its seat")
   btn(B.LEFT, 1); btn(B.A, 1)
-  check(calls.screen == "operating" and calls.info.stars == 3 and calls.info.stage == "remove", "A retries with a fresh round")
+  check(calls.screen == "operating" and calls.info.stage == "remove", "A retries with a fresh round")
   tick(61000)
   check(calls.screen == "failure", "running out of time fails")
 
   btn(B.A, 1)
-  btn(B.UP, 1); tick(600); btn(B.UP, 1); tick(600); btn(B.UP, 1)
-  check(calls.screen == "failure", "losing all stars fails")
+  for _ = 1, 12 do btn(B.UP, 1); btn(B.UP, 2); tick(600) end
+  check(calls.screen == "failure", "wall touches eat the clock until time runs out")
 
   btn(B.B, 1)
   check(st.exited, "B quits from the result screen")

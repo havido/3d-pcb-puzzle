@@ -2,7 +2,6 @@
 -- Built as the separate app "Goose UI Preview" (slug goose_preview).
 --   A      next screen          LEFT   previous screen
 --   B      touch wall 1         RIGHT  touch wall 2
---   UP     +1 star              DOWN   -1 star
 --   START  switch stage (remove / deliver)
 -- On the operating screen a fake timer counts down from 60 s and loops.
 
@@ -14,16 +13,16 @@ local K = badge.input.KIND
 
 local ui
 local index = 1
-local stars, stage = 3, "remove"
+local stage = "remove"
 local timer_start, next_update = 0, 0
 
 local function info(now)
-  return { time_left_ms = 60000 - (now - timer_start) % 60000, stars = stars,
-           stage = stage, best_ms = 42420 }
+  return { time_left_ms = 60000 - (now - timer_start) % 60000, stage = stage,
+           best_ms = 42420 }
 end
 
 local function show(now)
-  badge.sys.log("preview: " .. ORDER[index] .. " stars=" .. stars .. " stage=" .. stage)
+  badge.sys.log("preview: " .. ORDER[index] .. " stage=" .. stage)
   ui.show(ORDER[index], info(now))
 end
 
@@ -52,12 +51,6 @@ function M.button(button, kind, now)
     ui.touch(1)
   elseif button == B.RIGHT then
     ui.touch(2)
-  elseif button == B.UP then
-    stars = math.min(5, stars + 1)
-    ui.set_stars(stars)
-  elseif button == B.DOWN then
-    stars = math.max(0, stars - 1)
-    ui.set_stars(stars)
   elseif button == B.START then
     stage = stage == "remove" and "deliver" or "remove"
     show(now)
