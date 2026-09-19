@@ -117,7 +117,6 @@ local function wall_touch(zone, now)
   penalty_ms = penalty_ms + TOUCH_PENALTY_MS
   badge.sys.log("touch wall " .. zone .. )
   ui.touch(zone)
-  ui.set_stars(math.max(0, stars))
   ui.set_time(math.max(0, time_left(now)))   -- show the time jump right away
   flash(255, 0, 0, true, LED_FLASH_MS, now)
 end
@@ -141,7 +140,7 @@ end
 function M.start(the_ui, now)
   ui = the_ui
   best_ms = badge.store.get_int("best_ms", 0)
-  go("start", now)
+  go("start", now)s
 end
 
 function M.tick(now)
