@@ -77,23 +77,28 @@ app/.venv/bin/python app/tools/badge.py img in.png app/goose/img/name.bin --size
 
 ## Contract between `game.lua` and `ui.lua` (see issue #40)
 
+The full spec (argument ranges, when each call happens) is the header comment of `goose/ui.lua`. Summary:
+
 ```lua
 -- game.lua calls these; ui.lua implements them.
-ui.init(root)              -- build every widget once
+ui.init(root)              -- build every widget once, in on_enter
 ui.show(screen, info)      -- "start" | "operating" | "success" | "failure"
-                           -- info = { time_left_ms, stars, stage, best_ms }
-                           -- stage = "remove" | "deliver"; best_ms may be nil
-ui.set_time(time_left_ms)  -- timer changed (every 100 ms, and at once on a touch)
-ui.set_stars(n)            -- a wall touch cost a star
-ui.touch(zone)             -- 1 | 2: flinch + show which wall was hit
-ui.tick(now_ms)            -- advance animations; must return within a few ms
+                           -- info = { time_left_ms >= 0, stars 0..5,
+                           --          stage "remove" | "deliver", best_ms (nil = no best yet) }
+                           -- also called again on "operating" when the stage changes
+ui.set_time(time_left_ms)  -- every 100 ms while operating, and at once on a touch
+ui.set_stars(n)            -- stars left after a wall touch, n >= 0
+ui.touch(zone)             -- 1 | 2: flinch + show which wall; at most once per zone per 500 ms
+ui.tick(now_ms)            -- every ~20 ms; advance animations, return within a few ms
 ```
 
 Drivers (`game.lua`, `preview.lua`) implement `start(ui, now)`, `tick(now)`, `button(button, kind, now)`, `stop()`, called from `main.lua`.
 
-Buttons: A = Start/Retry, B = Quit (from start/success/failure), HOME always exits. The game's LEDs belong to `game.lua`.
+Buttons: A = Start/Retry, B = Quit (from start/success/failure), HOME always exits. `ui.lua` never reads buttons; the game's LEDs belong to `game.lua`.
 
-Change this contract only when both of us agree, and update this section in the same commit.
+**`lua app/tools/test.lua` enforces the contract.** It checks that `ui.lua` has all six functions and survives every screen, stage and edge value (0 stars, no best time, 0 ms). If it fails on `ui.lua`, fix `ui.lua`; don't loosen the test.
+
+**Changing the contract needs both of us.** Then, in the same commit, update the header of `ui.lua`, this section, `preview.lua` and `game.lua` if they use it, and the contract test in `tools/test.lua`.
 
 ## Working rules
 
