@@ -2,14 +2,13 @@
 -- Reads the goose's copper lines (D-pad button events), runs the stages and
 -- the countdown, drives the LEDs, and tells ui.lua what to show. Never
 -- creates widgets. v0: rules are placeholders until the open questions on #40
--- (what stars mean, timer format) are answered.
+
 
 local M = {}
 
 -- Tunables -------------------------------------------------------------------
 local ROUND_MS = 60000         -- countdown length
 local TOUCH_PENALTY_MS = 5000  -- time lost per wall touch
-local START_STARS = 3          -- a wall touch costs one; 0 stars = failure
 local LOCKOUT_MS = 500         -- one scrape = one penalty per wall zone
 local TIME_UPDATE_MS = 100     -- how often the timer display is refreshed
 local LED_FLASH_MS = 300       -- red flash on a touch
@@ -40,7 +39,7 @@ end
 local ui
 local screen = "start"             -- start | operating | success | failure
 local stage = "remove"             -- remove | deliver (while operating)
-local started_at, penalty_ms, stars = 0, 0, START_STARS
+local started_at, penalty_ms = 0, 0
 local locked_until = {}            -- wall zone -> ms
 local next_time_update = 0
 local best_ms = 0                  -- fastest success, 0 = none yet
@@ -81,8 +80,9 @@ local function time_left(now)
 end
 
 local function info(now)
-  return { time_left_ms = math.max(0, time_left(now)), stars = stars,
-           stage = stage, best_ms = best_ms > 0 and best_ms or nil }
+  return { time_left_ms = math.max(0, time_left(now)), 
+           stage = stage, 
+           best_ms = best_ms > 0 and best_ms or nil }
 end
 
 local function go(name, now)
@@ -94,7 +94,7 @@ end
 
 local function new_round(now)
   stage = "remove"
-  started_at, penalty_ms, stars = now, 0, START_STARS
+  started_at, penalty_ms = now, 0
   locked_until = {}
   next_time_update = 0
   go("operating", now)
@@ -115,13 +115,11 @@ local function wall_touch(zone, now)
   if now < (locked_until[zone] or 0) then return end
   locked_until[zone] = now + LOCKOUT_MS
   penalty_ms = penalty_ms + TOUCH_PENALTY_MS
-  stars = stars - 1
-  badge.sys.log("touch wall " .. zone .. " stars=" .. stars)
+  badge.sys.log("touch wall " .. zone .. )
   ui.touch(zone)
   ui.set_stars(math.max(0, stars))
   ui.set_time(math.max(0, time_left(now)))   -- show the time jump right away
   flash(255, 0, 0, true, LED_FLASH_MS, now)
-  if stars <= 0 then finish(false, now) end
 end
 
 -- True when a line has been in the given state for at least SEAT_SETTLE_MS.
