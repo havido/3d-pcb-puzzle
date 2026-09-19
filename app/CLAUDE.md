@@ -2,8 +2,9 @@
 
 This folder is the software that runs **on the hacker badge**: the game logic and the screens. The root `CLAUDE.md` covers the whole project; this file covers only `app/`. Work here doesn't touch the generator, prints or dock, and they don't touch this.
 
-- **Game logic** (input, state machine, countdown, LEDs): Akshat-Kalra. Tickets #18–#23.
-- **Screens and animations** (UI, sprites, goose map): teammate. Tickets #13, #14, #16, #27, #30.
+- **Game logic** (input, state machine, countdown, LEDs): @Akshat-Kalra. Tickets #20–#23.
+- **Screens and animations** (UI, sprites, goose map): @talfee. Tickets #13, #14, #16, #27, #30. Her Canva designs are in `assets/`.
+- How we split it: issue #40.
 - Stretch: #37 best-times table, #36 easter eggs.
 
 ## Platform (read `BADGE_API.md` before writing badge code)
@@ -12,8 +13,8 @@ This folder is the software that runs **on the hacker badge**: the game logic an
 
 - **Lua 5.x in a sandbox:** no `os`, `io`, `pcall`, `setmetatable`, `coroutine` or `load`. Manifest `api=2`.
 - **Lifecycle:** global `on_enter(root)`, `on_tick()` (~20 ms), `on_button(button, kind)`, `on_exit()`. Never `local function on_enter`.
-- **Deploy:** the web IDE (https://badge.hackthenorth.com/ide/, Chrome/Edge) → **Import app** (paste the single-file app) → **Connect** → **Push**. Switch the badge off before plugging in USB, and don't hold Start. The IDE is an uploader, **not a simulator**: every test runs on a real badge.
-- **Limits:** 48 KiB Lua heap, 64 KiB `main.lua`, 512 widgets, 32 store keys. No canvas: screens are built from `badge.ui` widgets (`label box bar arc line image …`); `line` takes ≤ 128 points; images are `.bin` files made by the IDE.
+- **Deploy:** `tools/badge.py push` (see Workflow), or the web IDE (https://badge.hackthenorth.com/ide/, Chrome/Edge) → **Import app** → **Connect** → **Push**. Switch the badge off before plugging in USB, and don't hold Start. The IDE is an uploader, **not a simulator**: every test runs on a real badge.
+- **Limits:** 48 KiB Lua heap, 64 KiB `main.lua`, 512 widgets, 32 store keys. No canvas: screens are built from `badge.ui` widgets (`label box bar arc line image …`); `line` takes ≤ 128 points; images are LVGL `.bin` files (`tools/badge.py` converts PNGs).
 - **Deadlines depend on the firmware:** new firmware (2026-09-16+) allows 250 ms per tick and 1 s per button callback. Older firmware allows **6 ms per tick and 20 ms per button callback**. Check `badge.sys.version()` on every badge we demo with. Keep normal tick work to a few ms either way.
 - **Fonts are ASCII only.** No em dashes, curly quotes or emoji in on-screen text.
 
@@ -38,30 +39,59 @@ The goose's copper zones are wired to the D-pad button lines; the tweezers are w
 
 ```
 app/
-  CLAUDE.md       this file
-  BADGE_API.md    official API guide (read-only copy)
-  diag/           #19 diagnostic app: all lines live + press timings
-  goose/          the game
-    main.lua      lifecycle callbacks; wires game and ui together
-    game.lua      Akshat: config table, input layer, state machine, timer, LEDs
-    ui.lua        teammate: every widget and animation
+  CLAUDE.md          this file
+  BADGE_API.md       official API guide (read-only copy)
+  diag/main.lua      #19 diagnostic app (single file with its manifest header)
+  goose/             the game, "Goose Doctor"
+    main.lua         lifecycle callbacks only: wires a driver to ui
+    game.lua         Akshat: config table, input layer, stages, timer, LEDs, best time
+    preview.lua      fake driver for UI work (see below); never ships in goose_doctor
+    ui.lua           talfee: every widget and animation
+    img/*.png        goose sprites etc.; converted to .bin at build time
+  tools/badge.py     build / bundle / push / PNG->.bin
+  tools/test.lua     headless tests (mock badge, badge-like sandbox)
+  dist/              build output (git-ignored)
 ```
 
 - **One owner per file.** `game.lua` never creates widgets; `ui.lua` never reads buttons or the clock for game rules. They meet only through the contract below.
 - Every tunable number (round time, penalty, lockout, LED colours) is a named constant at the top of `game.lua`.
-- Keep a manifest header (`--[==[badge-app … ]==]`, see `BADGE_API.md`) at the top of each app's `main.lua`, so the app can be pasted into **Import app**. Multi-file apps need each module added in the IDE with **+**; if that gets tedious, add a small script that inlines the modules into one importable file.
+- **Two apps from one folder** (`TARGETS` in `tools/badge.py`, which also holds the manifests):
+  - `goose` → **Goose Doctor** (`goose_doctor`): the real game, driver = `game.lua`.
+  - `preview` → **Goose UI Preview** (`goose_preview`): driver = `preview.lua`, a fake game for building screens without the goose. A next screen, LEFT previous, B / RIGHT touch wall 1 / 2, UP / DOWN stars, START switches stage, and a fake timer.
+  - `main.lua` does `require("driver")`; the build generates `driver.lua` pointing at the right one.
 
-## Contract between `game.lua` and `ui.lua` (draft: agree before building)
+## Workflow
+
+```sh
+python3 -m venv app/.venv && app/.venv/bin/pip install -r app/tools/requirements.txt   # once
+app/.venv/bin/python app/tools/badge.py build goose     # or preview / diag
+lua app/tools/test.lua                                   # needs all three built
+app/.venv/bin/python app/tools/badge.py push goose       # upload over USB, no IDE needed
+app/.venv/bin/python app/tools/badge.py img in.png app/goose/img/name.bin --size 56x56   # or drop PNGs in img/
+```
+
+- **push** needs the badge on USB (badge off → plug → on, don't hold Start) and the IDE tab closed, because the IDE holds the serial port. It uses the IDE's own console protocol (`put`, `reload`) and uploads images too.
+- **No terminal?** `build` also writes `app/dist/<slug>.lua`, one file for the IDE's **Import app** (code only, no images). Its line numbers differ from the sources; `build` prints where each file starts.
+- Images: widgets reference them by file name, e.g. `badge.ui.image(parent, "goose_start.bin")` for `img/goose_start.png`. RGB565A8 is 3 bytes per pixel and the app has 64 KiB **in total**, so keep sprites small; `build` warns when over budget.
+- Run `lua app/tools/test.lua` before pushing. The rules tests drive `game.lua` through a fake ui, so they don't break when screens change.
+
+## Contract between `game.lua` and `ui.lua` (see issue #40)
 
 ```lua
 -- game.lua calls these; ui.lua implements them.
-ui.init(root)                -- build every widget once (in on_enter)
-ui.show(screen, info)        -- screen: "idle" | "remove" | "deliver" | "win" | "lose"
-                             -- info: { time_left_ms, penalties, best_ms }
-ui.set_time(time_left_ms)    -- countdown changed (at most every 100 ms)
-ui.touch(zone)               -- zone: 1 | 2; play the flinch, light that wall on the map
-ui.tick(now_ms)              -- advance animations; must return in a few ms
+ui.init(root)              -- build every widget once
+ui.show(screen, info)      -- "start" | "operating" | "success" | "failure"
+                           -- info = { time_left_ms, stars, stage, best_ms }
+                           -- stage = "remove" | "deliver"; best_ms may be nil
+ui.set_time(time_left_ms)  -- timer changed (every 100 ms, and at once on a touch)
+ui.set_stars(n)            -- a wall touch cost a star
+ui.touch(zone)             -- 1 | 2: flinch + show which wall was hit
+ui.tick(now_ms)            -- advance animations; must return within a few ms
 ```
+
+Drivers (`game.lua`, `preview.lua`) implement `start(ui, now)`, `tick(now)`, `button(button, kind, now)`, `stop()`, called from `main.lua`.
+
+Buttons: A = Start/Retry, B = Quit (from start/success/failure), HOME always exits. The game's LEDs belong to `game.lua`.
 
 Change this contract only when both of us agree, and update this section in the same commit.
 
