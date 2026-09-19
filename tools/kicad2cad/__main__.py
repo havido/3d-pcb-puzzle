@@ -63,8 +63,9 @@ def main(argv=None) -> int:
         print(f"\nwrote {args.out}/: board.stl, board.3mf, preview.png, plot_1to1.pdf, layers/*.svg, report.json")
         for w in s["warnings"][len(board.warnings):]:
             print(f"  ! {w}")
+        closed = b["watertight"] and b["stl_file_watertight"]
         print(f"KiCad → printable board in {b['seconds']} s · {b['volume_mm3']:.0f} mm³ · "
-              f"{'watertight' if b['watertight'] else 'NOT WATERTIGHT'} · {b['triangles']} triangles")
+              f"{'watertight' if closed else 'NOT WATERTIGHT (check report.json)'} · {b['triangles']} triangles")
     return 0
 
 

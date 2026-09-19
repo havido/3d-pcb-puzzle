@@ -95,3 +95,18 @@ def test_recipe_changes_the_output(testboard3d):
     _, b2d, bld = testboard3d
     thicker = build(b2d, Recipe(base_thickness=3.0, arc_chord_mm=FINE))
     assert thicker.mesh.volume == pytest.approx(bld.mesh.volume + bld.base_area * 1.0, rel=1e-6)
+
+
+@pytest.mark.parametrize("board", ["testboard", "badge"])
+def test_stl_file_stays_watertight_after_reload(board, tmp_path, badge):
+    """Found on the badge: pinch points and sub-µm point pairs broke the saved STL. A slicer reads the
+    file (float32, points merged by position), so the file itself must be closed, not just the mesh."""
+    import trimesh
+    from collections import Counter
+    b2d = to_board2d(badge if board == "badge" else load(FIXTURES / "testboard.kicad_pcb"))
+    bld = build(b2d, Recipe())
+    assert not [p for p, n in Counter(map(tuple, bld.mesh.vertices)).items() if n > 1], "pinch points in the mesh"
+    f = tmp_path / "board.stl"
+    f.write_bytes(bld.mesh.export(file_type="stl"))
+    back = trimesh.load(str(f), file_type="stl")
+    assert back.is_watertight and back.volume == pytest.approx(bld.mesh.volume, rel=1e-6)

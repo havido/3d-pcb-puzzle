@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import matplotlib
+import trimesh
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -150,6 +151,11 @@ def write_svgs(b: Board2D, out: Path, layer: str = "F.Cu") -> list[Path]:
     return written
 
 
+def stl_file_watertight(path: Path) -> bool:
+    """Reload the STL as a slicer would (float32, vertices merged by position) and check it's closed."""
+    return bool(trimesh.load(str(path), file_type="stl").is_watertight)
+
+
 def write_report(path: Path, summary: dict, recipe, bld, files: dict[str, Path], seconds: float) -> Path:
     m = bld.mesh
     report = dict(summary)
@@ -163,6 +169,7 @@ def write_report(path: Path, summary: dict, recipe, bld, files: dict[str, Path],
         "triangles": int(len(m.faces)),
         "watertight": bool(m.is_watertight),
         "is_volume": bool(m.is_volume),
+        "stl_file_watertight": stl_file_watertight(files["stl"]),
         "files": {k: {"path": str(p), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for k, p in files.items()},
         "seconds": round(seconds, 2),
     }

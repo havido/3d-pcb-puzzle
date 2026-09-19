@@ -1,15 +1,22 @@
 """Phase 3: `Board2D` + recipe → 3D solids.
 
 Everything is 2.5D: the base plate is the outline (minus drills) extruded to
-`base_thickness`; the copper is the merged copper shape extruded from 0 to
-`base_thickness + copper_raise` and unioned with the base, so the two solids overlap
-instead of just touching (a robust union). KiCad's Y axis points down, so Y is
-flipped here, once: looking down on the printed board you see what KiCad shows.
+`base_thickness`, and the copper is extruded `copper_raise` high and stacked on top.
+KiCad's Y axis points down, so Y is flipped here, once: looking down on the printed
+board you see what KiCad shows.
+
+Mesh hygiene (found on the badge: its STL wasn't watertight once saved and reloaded):
+- all final 2D shapes live on a 1 µm grid (GRID), so no two distinct points are closer
+  than an STL's float32 coordinates can tell apart;
+- shapes that touch at a single point ("pinch points", e.g. thermal-relief spokes) are
+  closed with a CLOSE_EPS grow-and-shrink, turning each into a tiny neck;
+- the copper sits on the base instead of starting at z = 0, so no two faces overlap.
 """
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import numpy as np
+import shapely
 import trimesh
 import yaml
 from manifold3d import CrossSection, FillRule, Manifold
@@ -17,6 +24,10 @@ from shapely import affinity
 from shapely.geometry import MultiPolygon, Polygon
 
 from .shapes import Board2D, as_multipolygon
+
+
+GRID = 0.001        # mm: final 2D shapes are snapped to this grid (far below print resolution)
+CLOSE_EPS = 0.002   # mm: grow-then-shrink distance that closes single-point touches
 
 
 class RecipeError(ValueError):
@@ -82,6 +93,12 @@ def flip_y(geom):
     return affinity.scale(geom, xfact=1, yfact=-1, origin=(0, 0))
 
 
+def regularize(geom):
+    """Snap to GRID and close pinch points; changes areas by well under 0.01 %."""
+    closed = geom.buffer(CLOSE_EPS, join_style="mitre").buffer(-CLOSE_EPS, join_style="mitre")
+    return shapely.set_precision(closed, GRID)
+
+
 def cross_section(geom) -> CrossSection:
     rings = []
     for p in as_multipolygon(geom).geoms:
@@ -103,12 +120,11 @@ def build(b: Board2D, recipe: Recipe) -> Build:
     if others:
         warnings.append(f"copper on {', '.join(others)} is ignored (single-sided: only {recipe.copper_layer} is raised)")
 
-    base_2d = b.outline.difference(b.holes)
-    copper_2d = b.merged[recipe.copper_layer]
-    top = recipe.base_thickness + recipe.copper_raise
-    solid = cross_section(flip_y(base_2d)).extrude(recipe.base_thickness)
+    base_2d = regularize(flip_y(b.outline.difference(b.holes)))
+    copper_2d = shapely.intersection(regularize(flip_y(b.merged[recipe.copper_layer])), base_2d, grid_size=GRID)
+    solid = cross_section(base_2d).extrude(recipe.base_thickness)
     if not copper_2d.is_empty:
-        solid = solid + cross_section(flip_y(copper_2d)).extrude(top)
+        solid = solid + cross_section(copper_2d).extrude(recipe.copper_raise).translate((0, 0, recipe.base_thickness))
     return Build(to_trimesh(solid), solid, base_2d.area, copper_2d.area, warnings)
 
 
