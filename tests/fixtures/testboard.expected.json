@@ -1,0 +1,76 @@
+{
+ "outline": {
+  "bbox": [
+   100.0,
+   100.0,
+   150.0,
+   140.0
+  ],
+  "area_mm2": 1966.360620202628,
+  "holes": 1,
+  "cutout_center": [
+   144.0,
+   129.0
+  ],
+  "cutout_diameter": 6.0
+ },
+ "counts": {
+  "segments": 5,
+  "arcs": 1,
+  "vias": 1,
+  "pads": 7,
+  "pads_on_F.Cu": 7,
+  "pad_shapes": {
+   "thru_hole/circle": 1,
+   "smd/rect": 1,
+   "smd/oval": 1,
+   "smd/roundrect": 1,
+   "np_thru_hole/circle": 3
+  },
+  "drills": 5,
+  "plated_drills": 2,
+  "zones_F.Cu": 1,
+  "copper_graphics": 1,
+  "user_layers": {
+   "User.1": 1
+  },
+  "warnings": 1
+ },
+ "pads_board_xy": {
+  "1": [
+   130.0,
+   131.5
+  ],
+  "2": [
+   130.0,
+   127.0
+  ],
+  "3": [
+   130.0,
+   122.0
+  ],
+  "4": [
+   134.0,
+   127.0
+  ]
+ },
+ "hole_diameters": [
+  1.0,
+  1.5,
+  2.0
+ ],
+ "copper_area_mm2": {
+  "l_marker": 28,
+  "tracks": 200.26272015520854,
+  "arc": 28.274333882308138,
+  "diag": 20.112155402066932,
+  "pad_circle_minus_drill": 6.283185307179586,
+  "pad_rect": 8,
+  "pad_oval": 7.141592653589793,
+  "pad_roundrect": 5.785398163397448,
+  "via_minus_drill": 2.356194490192345,
+  "zone": 64
+ },
+ "copper_area_total_mm2": 370.2155800539428,
+ "user1_area_mm2": 80.0
+}
