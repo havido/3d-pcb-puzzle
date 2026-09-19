@@ -19,6 +19,14 @@ local CHASE_MS = 2000          -- success chase length, then solid green
 local CHASE_STEP_MS = 100      -- success chase speed
 local STAGE_PULSE_MS = 250     -- green pulse when organ A is out
 local REFUSED_MS = 600         -- amber blink when A is pressed without organ A seated
+
+-- SEAT_SETTLE_MS and REQUIRE_SEATED are overridable for playtests, because the
+-- badge console's `press` command only taps (PRESSED then RELEASED a few ms
+-- later, see app/tools/badge.py Session docs) -- it can't hold a button down
+-- the way a real seated organ does. `M.start` reads these once from the app
+-- store; defaults match the real game exactly, and a real badge/build never
+-- has these keys set. app/tools/playtest.py sets them via `config
+-- goose_doctor t_seated 0` / `t_settle_ms 0` and restores the defaults after.
 local SEAT_SETTLE_MS = 150     -- a seat must stay open/closed this long to count;
                                -- stops a wobbling organ or a tweezer brush on a
                                -- seat pad (tweezers are GND too) from counting
@@ -52,6 +60,13 @@ local next_time_update = 0
 local best_ms = 0                  -- fastest success, 0 = none yet
 local down = {}                    -- goose line -> true while pressed (from events)
 local changed_at = {}              -- goose line -> ms of its last press/release
+local seat_a_seen_down = false     -- organ A observed seated at least once this
+                                    -- round; guards check_seats() below against
+                                    -- the default "never touched" (down=false)
+                                    -- state looking like an instant removal when
+                                    -- REQUIRE_SEATED is off (t_seated=0 playtest
+                                    -- knob) and a round starts before organ A
+                                    -- has ever been in its seat this session
 
 -- Helpers --------------------------------------------------------------------
 local function time_left(now)
@@ -157,6 +172,7 @@ local function new_round(now)
   started_at, penalty_ms = now, 0
   locked_until = {}
   next_time_update = 0
+  seat_a_seen_down = down[SEAT_A] or false
   go("operating", now)
 end
 
@@ -188,7 +204,7 @@ local function settled(button, want_down, now)
 end
 
 local function check_seats(now)
-  if stage == "remove" and settled(SEAT_A, false, now) then
+  if stage == "remove" and seat_a_seen_down and settled(SEAT_A, false, now) then
     stage = "deliver"
     ui.show("operating", info(now))
     start_effect("stage", STAGE_PULSE_MS, now)
@@ -201,6 +217,8 @@ end
 function M.start(the_ui, now)
   ui = the_ui
   best_ms = badge.store.get_int("best_ms", 0)
+  SEAT_SETTLE_MS = badge.store.get_int("t_settle_ms", SEAT_SETTLE_MS)
+  REQUIRE_SEATED = badge.store.get_int("t_seated", REQUIRE_SEATED and 1 or 0) == 1
   go("start", now)
 end
 
@@ -227,8 +245,17 @@ function M.button(button, kind, now)
     -- before a round starts. Seats are acted on in tick, once settled.
     down[button] = kind == K.PRESSED
     changed_at[button] = now
+    if button == SEAT_A and down[button] then seat_a_seen_down = true end
     if screen == "operating" and line.kind == "wall" and kind == K.PRESSED then
       wall_touch(line.zone, now)
+    elseif screen == "operating" and (line.kind == "seat_a" or line.kind == "seat_b") then
+      -- Also check right on the event, not just every tick: with the real
+      -- SEAT_SETTLE_MS this changes nothing (elapsed since changed_at is 0,
+      -- so settled() still needs a later tick once it's genuinely held), but
+      -- it lets t_settle_ms=0 register a seat change from a single console
+      -- `press` tap (PRESSED then RELEASED within the same call), which a
+      -- tick loop sampled every ~20 ms would otherwise never catch.
+      check_seats(now)
     end
     return
   end

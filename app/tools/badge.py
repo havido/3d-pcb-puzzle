@@ -239,38 +239,292 @@ class Console:
                            f"(last output: {self.buf[-200:]!r})")
 
 
+# --- Session: a higher-level console for scripted play -----------------------
+#
+# `press` (see BUTTONS below) taps: PRESSED immediately followed by RELEASED.
+# Verified 2026-09-19 with `goose_diag` (app/diag/main.lua), which logs every
+# transition: `press Left` from the console produced one `down LEFT t=...`
+# line immediately followed by one `up LEFT t=... held=<1 ms>` line, held
+# always rounds to 0-1 ms. `help press` / `help -v 1` document only
+# `press <name>`, no extra arguments (an extra token like `press Left 500` is
+# just ignored/not a documented form) -- there is no console way to hold a
+# button down. This means the badge console alone cannot exercise game.lua's
+# REQUIRE_SEATED (LEFT must be *held*) or SEAT_SETTLE_MS (a seat must stay in
+# one state for 150 ms) the way a real seated organ would; see the `t_seated`
+# / `t_settle_ms` playtest knobs in game.lua.
+
+BUTTONS = ("A", "B", "Home", "Down", "Left", "Right", "Up", "Aux1", "Start")
+
+
+_NODE_RE = re.compile(r'^(?:\[\d+\]\s*)?(\S+)\s+(-?\d+),(-?\d+)\s+(\d+)x(\d+)(.*)$')
+_TEXT_RE = re.compile(r'text="((?:[^"\\]|\\.)*)"')
+
+
+class Node:
+    """One line of `uitree` output."""
+    __slots__ = ("type", "x", "y", "w", "h", "text", "hidden")
+
+    def __init__(self, type_, x, y, w, h, text, hidden):
+        self.type, self.x, self.y, self.w, self.h = type_, x, y, w, h
+        self.text, self.hidden = text, hidden
+
+    def __iter__(self):   # so callers can do `for kind, x, y, w, h, text in ...`
+        return iter((self.type, self.x, self.y, self.w, self.h, self.text))
+
+    def __repr__(self):
+        return (f"Node({self.type!r}, {self.x}, {self.y}, {self.w}, {self.h}, "
+                f"{self.text!r}, hidden={self.hidden})")
+
+
+def _decode_stripe(data, count):
+    """RLE1: see `shot` in app/CLAUDE.md's playtest section for the format."""
+    out = bytearray()
+    i, n = 0, 0
+    while n < count:
+        b = data[i]
+        i += 1
+        if b & 0x80:
+            run = (b & 0x7F) + 2
+            px = data[i:i + 2]
+            i += 2
+            out += px * run
+            n += run
+        else:
+            lit = b + 1
+            chunk = data[i:i + 2 * lit]
+            i += 2 * lit
+            out += chunk
+            n += lit
+    return bytes(out)
+
+
+class Session(Console):
+    """Console plus the playtest conveniences: cmd/press/uitree/shot/open_app.
+
+    Collects every line the badge prints (command output and unsolicited
+    `badge.sys.log` / `I (...)` lines alike) into `self.logs`, so a test can
+    grep for a line it expects (e.g. "touch wall 1") no matter which `cmd()`
+    call it arrived during.
+    """
+
+    def __init__(self, port):
+        super().__init__(port)
+        self.logs = []
+        self.last_cmd = "(handshake)"
+        # A freshly-opened port may still have a boot banner (or nothing)
+        # queued ahead of a prompt (same trick as push()'s initial `c.line("")`).
+        self.buf = ""
+        self.line("")
+        self.wait("badge> ", 5)
+
+    def cmd(self, text, timeout=5.0):
+        """Send one command, return its output text (without the echo or the
+        next prompt). Every non-blank line seen is appended to self.logs."""
+        self.last_cmd = text   # so a caller can report it if wait() times out
+        self.buf = ""
+        self.line(text)
+        raw = self.wait("badge> ", timeout)
+        body = raw[:-len("badge> ")].replace("\r\n", "\n").replace("\r", "\n")
+        lines = body.split("\n")
+        out_lines, echoed = [], False
+        for l in lines:
+            if not echoed and l.strip() == text.strip():
+                echoed = True   # the console echoing our own command back
+                continue
+            out_lines.append(l)
+        while out_lines and out_lines[-1] == "":
+            out_lines.pop()
+        for l in out_lines:
+            if l.strip():
+                self.logs.append(l.strip())
+        return "\n".join(out_lines)
+
+    def press(self, name, timeout=5.0):
+        """Tap one button (see BUTTONS). PRESSED then RELEASED -- see the
+        module docstring above; there is no way to hold from the console."""
+        if name not in BUTTONS:
+            raise ValueError(f"unknown button {name!r}, expected one of {BUTTONS}")
+        return self.cmd(f"press {name}", timeout)
+
+    def uitree(self, timeout=5.0):
+        """Return the widget tree as a flat list of Node. `hidden` is true if
+        the widget itself is hidden OR any ancestor is (LVGL only marks the
+        widget that `hidden(true)` was called on -- e.g. `ui.lua` hides a
+        whole screen's box, not each of its labels -- so this walks the
+        indentation to work out real, on-screen visibility)."""
+        out = self.cmd("uitree", timeout)
+        if "UITREE" not in out or "END " not in out:
+            raise RuntimeError(f"unexpected uitree output: {out[:300]!r}")
+        nodes = []
+        stack = []   # (indent, hidden) of open ancestors
+        for line in out.splitlines():
+            s = line.strip()
+            if not s or s in ("top", "(empty)") or s.startswith(("UITREE", "screen ", "END ")):
+                continue
+            m = _NODE_RE.match(s)
+            if not m:
+                continue
+            indent = len(line) - len(line.lstrip(" "))
+            while stack and stack[-1][0] >= indent:
+                stack.pop()
+            parent_hidden = stack[-1][1] if stack else False
+            kind, x, y, w, h, rest = m.groups()
+            tm = _TEXT_RE.search(rest)
+            hidden = parent_hidden or "hidden" in rest.split()
+            stack.append((indent, hidden))
+            nodes.append(Node(kind, int(x), int(y), int(w), int(h),
+                               tm.group(1) if tm else "", hidden))
+        return nodes
+
+    def texts(self, timeout=5.0):
+        """Visible label texts, in tree order -- what a test asserts on."""
+        return [n.text for n in self.uitree(timeout) if n.text and not n.hidden]
+
+    def shot(self, timeout=10.0, retries=2):
+        """Screenshot as a PIL Image. Verifies the crc32 the badge reports."""
+        from PIL import Image
+        import base64
+        import zlib
+        last_err = None
+        for attempt in range(retries + 1):
+            out = self.cmd("shot", timeout)
+            try:
+                m = re.search(r"SHOT (\d+) (\d+) rgb565le rle1", out)
+                if not m:
+                    raise RuntimeError(f"no SHOT header: {out[:200]!r}")
+                w, h = int(m.group(1)), int(m.group(2))
+                buf = bytearray(w * h * 2)
+                raw_concat = bytearray()
+                lines = out.splitlines()
+                i = 0
+                stripe_re = re.compile(r"^S (\d+) (\d+) (\d+) (\d+)$")
+                while i < len(lines):
+                    sm = stripe_re.match(lines[i].strip())
+                    if not sm:
+                        i += 1
+                        continue
+                    x0, y0, x1, y1 = (int(g) for g in sm.groups())
+                    i += 1
+                    b64_lines = []
+                    while i < len(lines) and lines[i].strip() and not lines[i].startswith(("S ", "END")):
+                        b64_lines.append(lines[i].strip())
+                        i += 1
+                    data = base64.b64decode("".join(b64_lines))
+                    sw, sh = x1 - x0 + 1, y1 - y0 + 1
+                    pixels = _decode_stripe(data, sw * sh)
+                    raw_concat += pixels
+                    for row in range(sh):
+                        src = row * sw * 2
+                        dst = ((y0 + row) * w + x0) * 2
+                        buf[dst:dst + sw * 2] = pixels[src:src + sw * 2]
+                endm = re.search(r"END .*crc32=([0-9a-fA-F]+)", out)
+                if not endm:
+                    raise RuntimeError(f"no END/crc32 in shot output: {out[-200:]!r}")
+                want = int(endm.group(1), 16)
+                got = zlib.crc32(bytes(raw_concat)) & 0xFFFFFFFF
+                if got != want:
+                    raise RuntimeError(f"shot crc32 mismatch: got {got:#010x} want {want:#010x}")
+                rgb = bytearray(w * h * 3)
+                for p in range(w * h):
+                    lo, hi = buf[2 * p], buf[2 * p + 1]
+                    v = lo | (hi << 8)
+                    r5, g6, b5 = (v >> 11) & 0x1F, (v >> 5) & 0x3F, v & 0x1F
+                    rgb[3 * p] = r5 * 255 // 31
+                    rgb[3 * p + 1] = g6 * 255 // 63
+                    rgb[3 * p + 2] = b5 * 255 // 31
+                return Image.frombytes("RGB", (w, h), bytes(rgb))
+            except TimeoutError:
+                # The prompt never came back: don't hammer a possibly-silent
+                # console in a retry loop (see app/CLAUDE.md's playtest
+                # safety notes) -- surface it immediately.
+                raise
+            except Exception as e:  # noqa: BLE001 -- decode/crc hiccup: retry, then surface it
+                last_err = e
+                if attempt == retries:
+                    raise
+                time.sleep(0.3)
+        raise last_err  # pragma: no cover
+
+    def open_app(self, name, max_steps=90, settle=0.15):
+        """From wherever the badge is, get to the launcher and open `name`
+        (its launcher name, as shown in `apps`' third column).
+
+        The launcher shows the currently-highlighted app's name as a header
+        label above the icon grid; that label is the only visible (non
+        hidden) `lv_label` outside a tile, so it is found by filtering
+        `uitree()`. Navigation order isn't the same as `apps`' listing (icons
+        may be reordered by the launcher), so this scans with `press Right`
+        rather than assuming a grid position, and stops as soon as the header
+        matches. Confirms the open with the `launched <name>` log line.
+        """
+        self.press("Home")
+        time.sleep(settle)
+        seen = []
+        for _ in range(max_steps):
+            header = [n.text for n in self.uitree() if n.text and not n.hidden]
+            current = header[0] if header else None
+            if current:
+                seen.append(current)
+            if current == name:
+                self.logs.clear()
+                self.press("A")
+                self.wait_log(f"launched {name}", timeout=3)  # best-effort; doesn't raise
+                return
+            self.press("Right")
+            time.sleep(settle)
+        raise RuntimeError(f"never saw {name!r} in the launcher after {max_steps} steps "
+                           f"(saw: {seen})")
+
+    def wait_log(self, substr, timeout=3.0):
+        """Best-effort: give the badge a moment to print a line containing
+        `substr` (e.g. "launched Goose Doctor"), flushing with no-op commands
+        so it lands in self.logs. Never raises -- callers should also check
+        the screen (uitree/shot), since not every app logs its launch."""
+        end = time.time() + timeout
+        while time.time() < end and not any(substr in l for l in self.logs):
+            try:
+                self.cmd("", min(1.0, max(0.05, end - time.time())))
+            except TimeoutError:
+                break
+
+
 def push(target, port):
     slug, files = build(target)
     port = port or find_port()
     print(f"pushing to {port} ...")
     c = Console(port)
-    c.line("")
-    c.wait("badge> ", 3)
-    if any(n.endswith(".bin") for n in files):
-        c.buf = ""
-        c.line("put --binary")
-        if "PUT BINARY OK" not in c.wait("badge> ", 5):
-            sys.exit("This badge's firmware can't receive images; update its firmware.")
-    remote = f"/littlefs/apps/{slug}"
-    c.line(f"mkdir {remote}")
-    c.wait("badge> ")
-    for name in sorted(files):
-        data = files[name]
-        print(f"  {name} ({len(data)} B) ...", end=" ", flush=True)
-        c.buf = ""
-        c.line(f"put {remote}/{name} {len(data)}")
-        c.wait("READY")
-        c.raw(data)
-        c.wait(f"OK {len(data)}", 20)
-        print("ok")
-    c.buf = ""
-    c.line("reload")
     try:
-        c.wait("reload:", 8)
-        print(f"done: open '{files['manifest.cfg'].decode().split('name=')[1].splitlines()[0]}'"
-              " from the badge launcher")
-    except TimeoutError:
-        print("uploaded, but reload wasn't confirmed: reboot the badge if the app doesn't appear")
+        c.line("")
+        c.wait("badge> ", 3)
+        if any(n.endswith(".bin") for n in files):
+            c.buf = ""
+            c.line("put --binary")
+            if "PUT BINARY OK" not in c.wait("badge> ", 5):
+                sys.exit("This badge's firmware can't receive images; update its firmware.")
+        remote = f"/littlefs/apps/{slug}"
+        c.line(f"mkdir {remote}")
+        c.wait("badge> ")
+        for name in sorted(files):
+            data = files[name]
+            print(f"  {name} ({len(data)} B) ...", end=" ", flush=True)
+            c.buf = ""
+            c.line(f"put {remote}/{name} {len(data)}")
+            c.wait("READY")
+            c.raw(data)
+            c.wait(f"OK {len(data)}", 20)
+            print("ok")
+        c.buf = ""
+        c.line("reload")
+        try:
+            c.wait("reload:", 8)
+            print(f"done: open '{files['manifest.cfg'].decode().split('name=')[1].splitlines()[0]}'"
+                  " from the badge launcher")
+        except TimeoutError:
+            print("uploaded, but reload wasn't confirmed: reboot the badge if the app doesn't appear")
+    finally:
+        # Close the port: callers (e.g. playtest.py) open their own Session
+        # right after push() returns, and the port must be free for that.
+        c.s.close()
 
 
 # --- logs ---------------------------------------------------------------
@@ -313,6 +567,51 @@ def logs(port, seconds, out, grep):
         s.close()
 
 
+# --- ui / shot / press / open (thin CLI wrappers around Session) ------------
+
+def cli_ui(port):
+    s = Session(port or find_port())
+    try:
+        for n in s.uitree():
+            flag = " hidden" if n.hidden else ""
+            text = f' text="{n.text}"' if n.text else ""
+            print(f"{n.type} {n.x},{n.y} {n.w}x{n.h}{text}{flag}")
+    finally:
+        s.s.close()
+
+
+def cli_shot(port, out):
+    s = Session(port or find_port())
+    try:
+        img = s.shot()
+    finally:
+        s.s.close()
+    out = out or str(DIST / "shots" / f"{time.strftime('%Y%m%d-%H%M%S')}.png")
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    img.save(out)
+    print(f"wrote {out}")
+
+
+def cli_press(port, buttons, gap):
+    s = Session(port or find_port())
+    try:
+        for b in buttons:
+            s.press(b)
+            if gap:
+                time.sleep(gap / 1000)
+    finally:
+        s.s.close()
+
+
+def cli_open(port, name):
+    s = Session(port or find_port())
+    try:
+        s.open_app(name)
+        print(f"opened {name!r}; visible text: {s.texts()}")
+    finally:
+        s.s.close()
+
+
 # --- cli --------------------------------------------------------------------
 
 def main():
@@ -334,6 +633,18 @@ def main():
                      help="stop after N seconds (default: run until Ctrl-C)")
     sp.add_argument("--out", help="also append the timestamped lines to this file")
     sp.add_argument("--grep", help="only show lines containing this text (case-insensitive)")
+    sp = sub.add_parser("ui", help="print the uitree: type, position, size, text")
+    sp.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
+    sp = sub.add_parser("shot", help="save a screenshot")
+    sp.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
+    sp.add_argument("-o", "--out", help="PNG path (default: app/dist/shots/<timestamp>.png)")
+    sp = sub.add_parser("press", help="tap one or more buttons")
+    sp.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
+    sp.add_argument("buttons", nargs="+", choices=BUTTONS, metavar="BTN")
+    sp.add_argument("--gap", type=float, default=0, help="ms to wait between presses")
+    sp = sub.add_parser("open", help="navigate the launcher and open an app by name")
+    sp.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
+    sp.add_argument("name", help='launcher name, e.g. "Goose Doctor"')
     a = p.parse_args()
 
     if a.cmd == "build":
@@ -349,6 +660,14 @@ def main():
         print("\n".join(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*")) or "none")
     elif a.cmd == "logs":
         logs(a.port, a.seconds, a.out, a.grep)
+    elif a.cmd == "ui":
+        cli_ui(a.port)
+    elif a.cmd == "shot":
+        cli_shot(a.port, a.out)
+    elif a.cmd == "press":
+        cli_press(a.port, a.buttons, a.gap)
+    elif a.cmd == "open":
+        cli_open(a.port, a.name)
 
 
 if __name__ == "__main__":

@@ -76,6 +76,41 @@ app/.venv/bin/python app/tools/badge.py img in.png app/goose/img/name.bin --size
 - Images: widgets reference them by file name, e.g. `badge.ui.image(parent, "goose_start.bin")` for `img/goose_start.png`. RGB565A8 is 3 bytes per pixel and the app has 64 KiB **in total**, so keep sprites small; `build` warns when over budget.
 - Run `lua app/tools/test.lua` before pushing. The rules tests drive `game.lua` through a fake ui, so they don't break when screens change.
 
+### Playtest on the badge
+
+`app/.venv/bin/python app/tools/playtest.py [--port PORT] [--slow]` is an end-to-end,
+on-hardware playtest: it builds and pushes `goose`, opens "Goose Doctor" from the
+launcher, and scripts a full round over the console, asserting on `uitree` label
+texts and console log lines. It saves one screenshot per distinct screen to
+`app/dist/shots/`. `--slow` also runs the ~60 s timeout-failure scenario;
+without it, the run takes well under a minute.
+
+- **`press` only taps** (PRESSED then RELEASED a few ms later) -- the console has
+  no way to hold a button down. `game.lua`'s `REQUIRE_SEATED` (organ A must be
+  *held* to start) and `SEAT_SETTLE_MS` (a seat must stay put for 150 ms to
+  count) both need a hold, so `playtest.py` first checks the refused-start rule
+  with the real defaults, then sets test-only knobs -- `config goose_doctor
+  t_seated 0` and `config goose_doctor t_settle_ms 0` -- to drive the rest of
+  the state machine with taps, and **always restores `t_seated 1` /
+  `t_settle_ms 150` in a `finally`**, even on failure or a badge that goes
+  silent mid-run. These knobs only exist via `badge.store`; a real build never
+  sets them, so production behaviour is untouched.
+- `app/tools/badge.py`'s `Session` (used by `playtest.py` and by the `ui` /
+  `shot` / `press` / `open` CLI subcommands) is a `Console` plus `cmd` /
+  `press` / `uitree` / `texts` / `shot` / `open_app`. Every call has a hard
+  timeout (5 s default, 10 s for `shot`) -- it never retries in a loop against
+  an unresponsive port.
+- **Safety allowlist.** Only send `press`, `uitree`, `shot`, `apps`, `help`,
+  `heap`, `ls`, `cat`, `config goose_doctor ...`, `config goose_diag ...`, and
+  the `push` flow (`mkdir` / `put` / `reload`) to the badge console. Never
+  `rm`, `factory_reset`, `prov`, `debug`, `appmode`, `seedall`, `badge_token`,
+  `badge_profile`, `card`, `ripple`, `sponsormap`, `reboot`, `chess`,
+  `blindbox_response`, `radio`, or anything else -- this badge is irreplaceable
+  hardware. Open the serial port once per run and reuse it; leave a couple of
+  seconds between separate runs.
+- **The badge sleeps when idle outside an app** (launcher / "My Badge" screen), and a sleeping badge's console is completely silent: no `badge> ` prompt, not even an echo. `press` can't wake it (it goes through the console). Wake it by hand (a button press on the badge; if that doesn't do it, switch it off and on), then run `push` / `playtest` straight away. Apps with `wake_lock=1` (Goose Doctor, Goose Diag) keep it awake, so an unattended badge should be left inside one. If a command times out, stop (don't retry or reopen the port), restore the knobs if a session is still open, close the port, and ask for the badge to be woken.
+- Don't touch the badge while a playtest runs: real presses mix with the injected ones, and a power cycle mid-run shows up as `Device not configured`. The knobs are then left changed, so restore them: `config goose_doctor t_seated 1` and `config goose_doctor t_settle_ms 150`.
+
 ## Contract between `game.lua` and `ui.lua` (see issue #40)
 
 The full spec (argument ranges, when each call happens) is the header comment of `goose/ui.lua`. Summary:
