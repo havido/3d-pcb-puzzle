@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Viewer from './Viewer.jsx'
 import { bundleUrl, convertStream, fileUrl, getSamples, getSchema, uploadBoard, API } from './api.js'
 
-const STEP_ORDER = ['parse', 'shapes', 'prepare', 'build', 'export']
+// The five steps the API reports, with the wording shown before each one arrives.
+const STEPS = [
+  { name: 'parse', label: 'Read the KiCad file' },
+  { name: 'shapes', label: 'Turn it into 2D shapes' },
+  { name: 'prepare', label: 'Apply the settings' },
+  { name: 'build', label: 'Build the 3D board' },
+  { name: 'export', label: 'Write the files' },
+]
 
 // The board and settings live in the URL, so any result can be shared or reloaded.
 function readHash() {
@@ -74,7 +81,7 @@ export default function App() {
   const set = (name, value) => setSettings((s) => ({ ...s, [name]: value }))
 
   const b = result?.build
-  const done = stages.length >= STEP_ORDER.length
+  const done = stages.length >= STEPS.length
 
   return (
     <div className="app" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
@@ -162,14 +169,14 @@ export default function App() {
       <aside className="right">
         <h2>Conversion</h2>
         <ol className="stages">
-          {STEP_ORDER.map((name, i) => {
-            const s = stages.find((x) => x.name === name)
+          {STEPS.map((step, i) => {
+            const s = stages.find((x) => x.name === step.name)
+            const running = busy && stages.length === i
             return (
-              <li key={name} className={s ? 'done' : busy && stages.length === i ? 'running' : ''}>
-                <span className="tick">{s ? '✓' : busy && stages.length === i ? '…' : ''}</span>
+              <li key={step.name} className={s ? 'done' : running ? 'running' : ''}>
+                <span className="tick">{s ? '✓' : running ? '…' : ''}</span>
                 <div>
-                  <strong>{s ? s.label : ['Read the KiCad file', 'Turn it into 2D shapes', 'Apply the settings',
-                                          'Build the 3D board', 'Write the files'][i]}</strong>
+                  <strong>{s ? s.label : step.label}</strong>
                   {s && <span>{s.detail} · {s.seconds}s</span>}
                 </div>
               </li>
