@@ -3,7 +3,7 @@
 
   python app/tools/badge.py build  <target>   # app/dist/<slug>/ + app/dist/<slug>.lua
   python app/tools/badge.py push   <target>   # build, then upload over USB serial
-  python app/tools/badge.py img    <in.png> <out.bin> [--size WxH]
+  python app/tools/badge.py img    <in.png> <out.bin> [--size WxH] [--colors 16|4|2]
   python app/tools/badge.py ports              # list serial ports
   python app/tools/badge.py logs               # print the badge's USB serial console
 
@@ -151,26 +151,47 @@ def build(target):
     if len(single.encode()) > MAIN_LIMIT:
         print(f"  WARNING: single file is over the IDE's {MAIN_LIMIT} B main.lua limit")
     if total > APP_QUOTA:
-        print(f"  WARNING: {total} B is over the {APP_QUOTA} B per-app storage quota")
+        print(f"  WARNING: {total} B is over the {APP_QUOTA} B per-app storage quota -- "
+              "full-screen art needs an indexed .bin (badge.py img IN.png OUT.bin "
+              "--colors 16, dropped in img/ or copied over an existing .bin), "
+              "not a plain RGB565A8 PNG in img/")
     elif total > SHARE_LIMIT:
         print(f"  note: over {SHARE_LIMIT} B, so the Share app can't send it to other badges")
     return slug, files
 
 
 # --- images -----------------------------------------------------------------
+#
+# Two output formats, both LVGL v9 .bin with the same 12-byte header (magic
+# 0x19, colour format, flags(2)=0,0, w(2 LE), h(2 LE), stride(2 LE),
+# reserved(2)=0):
+#
+#   RGB565A8 (colors=None, the default): 3 B/px (2 B colour + 1 B alpha
+#   plane), same format as the web IDE's icon.bin. Full-screen (320x240) is
+#   230,412 B -- far over the 64 KiB per-app budget, so this is only for
+#   small sprites/icons.
+#
+#   Indexed I4/I2/I1 (colors=16/4/2): a 16/4/2-entry BGRA palette followed by
+#   1/2/4 pixels-per-byte packed data (rows padded to `stride`), the format
+#   proven on a real badge 2026-09-19 (I4, 320x240 start screen, 38,476 B --
+#   fits). Use this for anything full-screen; see UI_NOTES.md.
 
-def png_to_bin(path, size=None):
-    """PNG -> LVGL v9 RGB565A8 .bin, same format as the IDE's icon.bin."""
-    from PIL import Image
-    im = Image.open(path).convert("RGBA")
-    if size:
-        im = im.resize(size, Image.LANCZOS)
+_INDEXED_CF = {16: 0x09, 4: 0x08, 2: 0x07}   # LV_COLOR_FORMAT_I4 / I2 / I1
+_ALPHA_THRESHOLD = 128                        # below this: fully transparent
+
+
+def _bin_header(cf, w, h, stride):
+    return (bytes([0x19, cf, 0, 0])
+            + w.to_bytes(2, "little") + h.to_bytes(2, "little")
+            + stride.to_bytes(2, "little") + b"\0\0")
+
+
+def _rgb565a8_bin(im):
+    """RGBA image -> LVGL v9 RGB565A8 .bin, same format as the IDE's icon.bin."""
     w, h = im.size
     px = im.tobytes()
     out = bytearray(12 + w * h * 3)
-    out[0:4] = bytes([0x19, 0x14, 0, 0])           # magic, RGB565A8, flags
-    out[4:12] = (w.to_bytes(2, "little") + h.to_bytes(2, "little")
-                 + (w * 2).to_bytes(2, "little") + b"\0\0")
+    out[0:12] = _bin_header(0x14, w, h, w * 2)
     alpha = 12 + w * h * 2
     for i in range(w * h):
         r, g, b, a = px[i * 4:i * 4 + 4]
@@ -179,6 +200,100 @@ def png_to_bin(path, size=None):
         out[13 + i * 2] = c >> 8
         out[alpha + i] = a
     return bytes(out)
+
+
+def _indexed_bin(im, colors):
+    """RGBA image -> LVGL v9 indexed .bin (I4/I2/I1).
+
+    Quantized with Pillow (median-cut + Floyd-Steinberg dithering) to
+    `colors` (16/4/2) palette entries, stored BGRA. When the source PNG has
+    any transparency, one palette slot is reserved fully-transparent (binary
+    transparency, like a GIF) and the rest of the palette is built from the
+    opaque pixels only, so a transparent background never eats a colour
+    slot. Pixels are packed MSB-first (2 px/byte high-nibble-first for I4,
+    4 px/byte for I2, 8 px/byte for I1); rows are padded to `stride` bytes.
+    """
+    if colors not in _INDEXED_CF:
+        raise ValueError(f"--colors must be one of {sorted(_INDEXED_CF)}, got {colors}")
+    from PIL import Image
+    bpp = {16: 4, 4: 2, 2: 1}[colors]
+    cf = _INDEXED_CF[colors]
+    w, h = im.size
+    rgb = im.convert("RGB")
+    alpha = im.split()[-1]
+    amin, _ = alpha.getextrema()
+    has_alpha = amin < _ALPHA_THRESHOLD
+
+    if has_alpha:
+        n_opaque = max(colors - 1, 1)
+        rpx0, apx0 = rgb.load(), alpha.load()
+        opaque = [rpx0[x, y] for y in range(h) for x in range(w)
+                  if apx0[x, y] >= _ALPHA_THRESHOLD]
+        if not opaque:
+            opaque = [(0, 0, 0)]
+        strip_w = min(len(opaque), 4096)
+        strip_h = -(-len(opaque) // strip_w)
+        opaque = opaque + [opaque[-1]] * (strip_w * strip_h - len(opaque))
+        strip = Image.new("RGB", (strip_w, strip_h))
+        strip.putdata(opaque)
+        pal_img = strip.quantize(colors=n_opaque, method=Image.MEDIANCUT)
+        quant = rgb.quantize(colors=n_opaque, palette=pal_img, dither=Image.FLOYDSTEINBERG)
+        pal = (quant.getpalette() or [])[:n_opaque * 3]
+        pal += [0] * (n_opaque * 3 - len(pal))
+        palette = [(0, 0, 0, 0)] + [(pal[i * 3 + 2], pal[i * 3 + 1], pal[i * 3], 255)
+                                     for i in range(n_opaque)]
+        qpx, apx = quant.load(), alpha.load()
+        indices = [0 if apx[x, y] < _ALPHA_THRESHOLD else qpx[x, y] + 1
+                   for y in range(h) for x in range(w)]
+    else:
+        quant = rgb.quantize(colors=colors, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG)
+        pal = (quant.getpalette() or [])[:colors * 3]
+        pal += [0] * (colors * 3 - len(pal))
+        palette = [(pal[i * 3 + 2], pal[i * 3 + 1], pal[i * 3], 255) for i in range(colors)]
+        qpx = quant.load()
+        indices = [qpx[x, y] for y in range(h) for x in range(w)]
+    while len(palette) < colors:
+        palette.append((0, 0, 0, 0))
+
+    stride = (w * bpp + 7) // 8
+    out = bytearray(_bin_header(cf, w, h, stride))
+    for b, g, r, a in palette:
+        out += bytes((b, g, r, a))
+
+    ppb = 8 // bpp
+    mask = (1 << bpp) - 1
+    for y in range(h):
+        row = bytearray(stride)
+        base = y * w
+        for x in range(w):
+            byte_i, shift = x // ppb, 8 - bpp - (x % ppb) * bpp
+            row[byte_i] |= (indices[base + x] & mask) << shift
+        out += row
+    return bytes(out)
+
+
+def png_to_bin(path, size=None, colors=None):
+    """PNG -> LVGL v9 .bin. colors=None (default) is RGB565A8 (byte-for-byte
+    the IDE's format); colors=16/4/2 is indexed I4/I2/I1 (see above)."""
+    from PIL import Image
+    im = Image.open(path).convert("RGBA")
+    if size:
+        im = im.resize(size, Image.LANCZOS)
+    return _indexed_bin(im, colors) if colors else _rgb565a8_bin(im)
+
+
+def _selftest():
+    """Cheap regression guard, run on every CLI invocation: the default (no
+    --colors) path must keep emitting byte-for-byte the same RGB565A8 format
+    the web IDE's icon.bin uses."""
+    import tempfile
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "t.png"
+        Image.new("RGBA", (42, 42), (10, 20, 30, 255)).save(p)
+        data = png_to_bin(p)
+        assert len(data) == 5304, f"RGB565A8 42x42 should be 5304 B, got {len(data)}"
+        assert data[0:4] == bytes([0x19, 0x14, 0, 0]), "RGB565A8 header changed"
 
 
 # --- push -------------------------------------------------------------------
@@ -495,7 +610,7 @@ def push(target, port):
     c = Console(port)
     try:
         c.line("")
-        c.wait("badge> ", 3)
+        c.wait("badge> ", 10)   # the badge can reboot on connect; give it time
         if any(n.endswith(".bin") for n in files):
             c.buf = ""
             c.line("put --binary")
@@ -615,6 +730,7 @@ def cli_open(port, name):
 # --- cli --------------------------------------------------------------------
 
 def main():
+    _selftest()
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     for cmd in ("build", "push"):
@@ -626,6 +742,9 @@ def main():
     sp.add_argument("png")
     sp.add_argument("out")
     sp.add_argument("--size", help="resize to WxH first, e.g. 56x56")
+    sp.add_argument("--colors", type=int, choices=(16, 4, 2),
+                     help="indexed output instead of RGB565A8: 16=I4, 4=I2, 2=I1 "
+                          "(much smaller; use for full-screen art)")
     sub.add_parser("ports")
     sp = sub.add_parser("logs")
     sp.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
@@ -653,9 +772,13 @@ def main():
         push(a.target, a.port)
     elif a.cmd == "img":
         size = tuple(int(n) for n in re.split("[x×]", a.size)) if a.size else None
-        data = png_to_bin(a.png, size)
+        data = png_to_bin(a.png, size, colors=a.colors)
         Path(a.out).write_bytes(data)
         print(f"wrote {a.out}: {len(data)} B")
+        if len(data) > 40 * 1024:
+            print(f"  note: {len(data)} B is a large chunk of the app's {APP_QUOTA} B total "
+                  "budget (code + all images) -- if this is full-screen art, try --colors 16 "
+                  "(or 4/2) for indexed output instead of RGB565A8")
     elif a.cmd == "ports":
         print("\n".join(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*")) or "none")
     elif a.cmd == "logs":
