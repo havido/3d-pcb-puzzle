@@ -1,7 +1,36 @@
 -- ui.lua: every widget of Goose Doctor. Owner: @talfee.
--- This is a STUB with plain widgets in the Canva colours (assets/*.png) so the
--- game can run end to end. Replace freely, but keep the functions and
--- arguments in the contract (app/CLAUDE.md) unchanged.
+-- This is a STUB with plain widgets in the Canva colours (assets/*.png).
+-- Replace it freely, but keep the functions below with these exact names and
+-- arguments: game.lua calls them, and `lua app/tools/test.lua` checks them.
+--
+--   M.init(root)
+--       Build every widget once. root is the app screen; only use it as a
+--       parent. Called once from on_enter.
+--   M.show(screen, info)
+--       Show one full screen and hide the others.
+--       screen: "start" | "operating" | "success" | "failure"
+--       info (always a table):
+--         time_left_ms  integer >= 0    countdown remaining
+--         stars         integer 0..5    stars left
+--         stage         "remove" | "deliver"   (which organ job is on)
+--         best_ms       integer or nil  fastest win so far, nil = none yet
+--       Called on every screen change, and again when the stage changes
+--       (same screen "operating", new stage).
+--   M.set_time(ms)
+--       Countdown changed, ms >= 0. Called every 100 ms while operating, and
+--       immediately after a wall touch (the time jumps down).
+--   M.set_stars(n)
+--       Stars left after a wall touch, n >= 0.
+--   M.touch(zone)
+--       The tweezers hit a wall. zone is 1 or 2. Play the flinch/flash here.
+--       Called at most once per zone per half second.
+--   M.tick(now_ms)
+--       Called every ~20 ms with badge.sys.ms(). Advance animations here.
+--       Must return in a few ms: no loops that wait, no big redraws.
+--
+-- Buttons are game.lua's job, so never read them here: A = Start/Retry and
+-- B = Quit are shown on screen only. Don't create widgets outside init.
+-- The "preview" app (badge.py push preview) drives all of this by hand.
 
 local M = {}
 

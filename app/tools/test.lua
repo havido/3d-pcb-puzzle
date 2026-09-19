@@ -125,6 +125,34 @@ smoke("goose_diag.lua")
 smoke("goose_preview.lua")
 smoke("goose_doctor.lua")
 
+-- 2a. ui.lua honours the contract (this is what protects game.lua from ui edits)
+print("ui.lua contract")
+do
+  local st = new_badge()
+  local env = sandbox(st.badge)
+  local f = assert(io.open(dist .. "goose_doctor/ui.lua", "r"))
+  local ui = assert(load(f:read("a"), "@ui.lua", "t", env))()
+  f:close()
+  for _, fn in ipairs({ "init", "show", "set_time", "set_stars", "touch", "tick" }) do
+    check(type(ui[fn]) == "function", "ui." .. fn .. " must be a function")
+  end
+  local ok, err = pcall(function()
+    ui.init({})
+    for _, name in ipairs({ "start", "operating", "success", "failure" }) do
+      for _, stage in ipairs({ "remove", "deliver" }) do
+        ui.show(name, { time_left_ms = 59999, stars = 3, stage = stage, best_ms = 12340 })
+        ui.show(name, { time_left_ms = 0, stars = 0, stage = stage, best_ms = nil })
+      end
+    end
+    for _, ms in ipairs({ 0, 1, 9999, 60000, 3599999 }) do ui.set_time(ms) end
+    for n = 0, 5 do ui.set_stars(n) end
+    ui.touch(1)
+    ui.touch(2)
+    for now = 0, 2000, 20 do ui.tick(now) end
+  end)
+  check(ok, "contract call failed: " .. tostring(err))
+end
+
 -- 2. Game rules against a recording ui ------------------------------------
 print("game.lua rules")
 do
