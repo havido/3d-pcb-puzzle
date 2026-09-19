@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+out/
+
+# badge app
+app/dist/
+app/.venv/
+
+# KiCad local state and caches (files already tracked stay tracked)
+*.kicad_prl
+*-backups/
+fp-info-cache
+*.lck
+~*
+_autosave-*
+
+# OS junk
+__MACOSX/
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/settings.local.json
