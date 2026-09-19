@@ -7,3 +7,9 @@ matplotlib>=3.8
 pytest>=8.0
 networkx>=3.0
 lxml>=5.0
+
+# web service (web/api)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+httpx>=0.27
