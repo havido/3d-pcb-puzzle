@@ -14,7 +14,7 @@
 
 ### A2. Badge facts (from `Archive 2/`: `badge.kicad_pcb`, `badge.kicad_sch`, KiCad 9 format, "Hacker Badge V1.1.1, 28/06/2026")
 Repo name `badge-hardware`; interactive BOM: https://hackathon.github.io/badge-hardware/badge-ibom.html. A zip backup of the same files is in `Archive 2/badge-backups/`.
-- **Board:** 2-layer, 1.6 mm, outline about 95 × 147 mm (KiCad coords x 55.9–150.9, y 29.9–177.3). Has V-cut markings. Largest drill is 1.98 mm; no NPTH mounting holes, so a dock has to register on the **board outline**, not on holes.
+- **Board:** 2-layer, 1.6 mm, outline about 95 × 147 mm (KiCad coords x 55.9–150.9, y 29.9–177.3). Has V-cut markings. Largest drill is 1.98 mm, but Edge.Cuts has **4 routed round holes, Ø 4.45 mm**, centres (74.58, 33.79), (132.28, 33.82), (74.59, 173.21), (132.29, 173.24) — ~3.9 mm in from the edge, on a 57.7 × 139.4 mm rectangle. A dock can locate on these with printed pins instead of the outline (confirm on the real badge that they're open and not needed for the lanyard).
 - **MCU:** U9 ESP32-C3-MINI-1-N4. **Every usable GPIO is taken; there is no spare pin.**
   | Module pin (GPIO) | Net |
   |---|---|
@@ -32,12 +32,15 @@ Repo name `badge-hardware`; interactive BOM: https://hackathon.github.io/badge-h
   | 26/27 (IO18/19) | USB D−/D+ via R40/R41 |
   | 30 (IO20) | SR_SHLD |
   | 31 (IO21) | SR_CLK |
-  (GPIO numbers inferred from the standard ESP32-C3-MINI-1 pinout — verify against the schematic/firmware.)
+  (GPIO numbers verified against the schematic's ESP32-C3-MINI-1 symbol, 2026-09-19. Pins 30/31 are RXD0/TXD0 = IO20/IO21.)
 - **LEDs:** 6× WS2812B-2020 on the **front**, one daisy chain LED1→LED6, powered from +5V. Positions (KiCad mm): LED1 (65.9, 37.9), LED2 (137.1, 37.7), LED3 (131.4, 106.3), LED4 (129.4, 164.6), LED5 (71.8, 163.8), LED6 (72.1, 106.9) — roughly the four corners plus mid-left and mid-right. **LED6 data-out pad is unconnected** (0.9 × 0.7 mm pad).
 - **Buttons:** 7 tact switches (KH-6X6X5H, front) + slide switch SW11 feed U8 74HC165 shift register. All are **active-low with 10k pull-ups to 3V3**; switch pads are big exposed solder joints (2.3 × 1.5 mm).
   - BTN_1 = SW11 slide; BTN_2 = SW2 (78.4,121.2); BTN_3 = SW3 (85.1,128.7); BTN_4 = SW4 (71.5,128.7); BTN_5 = SW8 (79.0,136.5) — these four are the D-pad on the left.
   - BTN_7 = SW5 (121.4,130.9); SW_HPM = SW6 (135.9,124.3) — A/B on the right. BTN_6 = SW7 (97.5,150.0) and ESP32_BOOT = SW10 (112.0,149.9) — Home/Start at the bottom. (Which is which to be confirmed on the real badge.)
-- **I2C bus (IO5/IO6, pull-ups R34/R36):** U2 SC7A20H accelerometer (front, INT pins unconnected) and U7 MFRC522B NFC reader (back). The NFC reader is what scans the venue stickers; its antenna is at the bottom of the badge. TP6 (back) = NFC IRQ.
+  - Verified from `badge.kicad_pcb`: every tact switch has its **two GND pads on one side and two signal pads on the other** (4.5 mm apart vertically, 9.1 mm horizontally; for rotation 0 the GND pads are the upper row). A puzzle output needs only two pogos on the same switch (signal + GND) — no separate GND contact.
+  - U8 74HC165 runs from +3V3; inputs D0–D7 = BTN_1…BTN_7, SW_HPM. SW_HPM is electrically an ordinary button; its name may mean special firmware handling — check before using it.
+  - **SW10 / ESP32_BOOT goes straight to IO9, a strapping pin: never use it as a puzzle output** (held low at reset = firmware-download mode).
+- **I2C bus (IO5/IO6, pull-ups R34/R36):** U2 SC7A20H accelerometer (front, INT pins unconnected) and U7 MFRC522B NFC reader (back). The NFC reader is what scans the venue stickers; its antenna is at the bottom of the badge, inside a keep-out area x 77.7–129.8, y 142.5–175.2 (both layers). Keep puzzle copper out of that area, or NFC is detuned while docked. TP6 (back) = NFC IRQ.
 - **Test points (1.5 mm round, front unless noted):** TP1 VBUS (73.1, 91.4), TP3 +5V (79.1, 103.9), TP4 GND (58.2, 74.8), TP5 +3V3 (88.2, 99.4), TP6 NFC IRQ (62.1, 125.7, back). **No signal test points exist.**
 - **Power:** 2× AA holder on the back → Q1 AO3401 reverse protection → SW1 power slide → U4 MT3608 boost to +5V → U5 XC6220 3.3 V LDO. U12 LM66200 selects between VBUS and boosted battery. JP1 = open solder jumper (back) that bypasses Q1. USB-C with SRV05 ESD protection, native USB to the ESP32-C3. Display on a 12-pin FPC (SPI-style).
 - **Badge rules that matter:** no replacements if damaged; turn the battery switch OFF before plugging in USB; low batteries cause glitches; warm near USB/top/back = turn off.

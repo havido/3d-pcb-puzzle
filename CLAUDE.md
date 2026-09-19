@@ -4,21 +4,23 @@
 
 Built at Hack the North (Waterloo, 36 h, started 2026-09-19). Optimise for a working demo, not polish.
 
-## Current goal: puzzle cartridge for the hacker badge
+## Current goal: goose-shaped "Operation" game for the hacker badge (chosen 2026-09-19)
 
-The demo 3DPCB is a puzzle that docks onto the event's hacker badge; the badge is the tool used to solve it.
+The demo 3DPCB is a goose-shaped board played like the Operation game, with the event's hacker badge as its brain and screen.
 
-- **Badge → puzzle:** optical. Light sensors on the puzzle sit over the badge's 6 RGB LEDs, inside printed shrouds. No electrical contact.
-- **Puzzle → badge:** pull a button pad to GND (active-low, 10k pull-ups already on the badge). Optional power from the +5V / +3V3 / GND test points via pogo pins.
-- **The puzzle logic must live in the copper routing, not in firmware.** Different printed boards = different puzzles (swappable cartridges). That is the answer to "why not just an app?".
-- A badge app (badge.hackthenorth.com) drives the LEDs and reads the button lines.
+- The goose has maze-like channels. The player moves an "organ" out through one channel and brings another organ in through a different one, against a countdown.
+- **Sensing is pure copper, no components needed:** the tweezers/organ are tethered to badge GND; copper zones on the goose each go to one badge button line (active-low, 10k pull-ups already on the badge). Touching a wall = that "button" pressed = seconds knocked off the timer. Seat pads detect organ removed / organ delivered the same way.
+- The badge app keeps the timer, animates success/failure on the display, and flashes the LEDs. Contact to the badge is by pogo pins on exposed button pads + the GND test point (TP4).
+- Lines for the board: D-pad (BTN_2–5). Keep A/B/Home free for the player. Never use ESP32_BOOT (SW10).
+- Earlier ideas (optical input from the LEDs, diode ROM, rotor cipher) are parked in `CONTEXT.md`; optional easter eggs only.
 
 Priorities, in order:
-1. Pick the puzzle (open) and verify button-pad injection on a real badge with a jumper to GND.
-2. Trace-width coupon + sandwich-cutter test print.
-3. KiCad → 3D model generator for the puzzle board, plus a dock that registers on the badge outline and carries pogo pins / light shrouds.
-4. Badge app.
-5. Robotic assembly (the old plan) — only if everything above is done.
+1. Verify on a real badge: jumper a button pad to GND, confirm an app sees it; then the same through copper tape + tweezers (are brief touches caught?).
+2. Test coupon: channel width vs organ size, copper on channel edges, tape adhesion, sandwich-cutter clearance.
+3. Goose board: KiCad outline + zones → 3D model generator → print, tape, wire.
+4. Badge dock (registers on the badge outline, carries pogo pins) and tweezers tether.
+5. Badge app: timer, touch penalties, stage logic, animations.
+6. Robotic assembly (the old plan) — only if everything above is done.
 
 ## Hard constraints
 

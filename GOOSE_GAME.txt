@@ -1,0 +1,106 @@
+The Operation game fits the copper-tape board well, because the sensing needs no electronic components. I've updated [CLAUDE.md](../CLAUDE.md) so the goose Operation game is the current goal.
+
+## How it works electrically
+
+- **Wall touch:**
+  - The tweezers are wired to the badge's ground.
+  - Each copper zone on the goose is wired to one badge button line.
+  - When the tweezers touch copper, the badge sees that button as pressed.
+- **Seat pads:**
+  - Each organ's resting spot has two small copper pads, one to ground and one to a button line.
+  - A copper-wrapped organ sitting on them bridges the two.
+  - The button reads "held" while the organ is seated and "released" when it is lifted.
+- **Button lines:** four lines cover the game.
+
+| Line | Meaning |
+|---|---|
+| D-pad 1 | Wall touched (penalty) |
+| D-pad 2 | Organ A seated in its origin spot (released = picked up) |
+| D-pad 3 | Organ B seated in its destination spot (pressed = delivered, win) |
+| D-pad 4 | Spare: a second wall zone, so the screen can show where you touched |
+
+- **Player buttons:** A, B and Home stay free for the player to start and restart the game.
+- **Line to avoid:** never wire to the BOOT button's line.
+- **Missed touches (risk):** a touch may last only a few milliseconds, and the app may not check the buttons often enough to catch it.
+  - The fix is one capacitor of about 10 µF from the wall line to ground.
+  - A touch discharges it instantly and it refills slowly, so the "press" is held for about 100 ms.
+  - Test without the capacitor first.
+
+## Decisions that are yours to make
+
+1. **Where the badge goes.**
+   - **Recommended: goose over the buttons.**
+     - The goose body overhangs the bottom, button half of the badge. It carries the spring pins pointing down and leaves the display visible.
+     - The thin print above the bottom two LEDs lets the goose glow red on a touch.
+     - The tactile buttons are 5 mm tall, so it needs pockets for them.
+   - **Fallback: clip and ribbon.** A small clip-on spring-pin bridge with a ribbon of wires runs to a goose sitting beside the badge.
+2. **Loose organ with tweezers, or a wand with the organ fixed on its tip.**
+   - A loose organ is the real Operation game and lets the seat pads work.
+   - It needs the organ to be conductive (copper-wrapped) and the channel floor to be plain plastic.
+3. **Where the copper goes in the channels.**
+   - **Try first: copper on the channel rims.**
+     - This means copper on the flat top face along the channel edges, folded slightly over the lip. It fits your flat sandwich-cutter process.
+     - The organ then needs a flange, or the tweezers have to ride at rim height.
+   - **Alternative: line the vertical walls by hand.**
+
+Which of the two goes on the final goose is one of the two key coupon results.
+
+## Tasks
+
+**Gate 0: checks on a real badge, within the hour**
+- Jumper a D-pad pad to ground and confirm an app sees it.
+- Repeat through tape and tweezers, and note whether short touches register.
+- Find out how badge apps are written. Today's workshop and badge.hackthenorth.com cover this:
+  - the language
+  - how buttons are read
+  - how often they are checked
+  - the display and LED calls
+
+**You (physical)**
+- **Coupon:**
+  - channel widths of 6, 8, 10 and 12 mm, with one curve
+  - rim copper compared with wall copper
+  - a seat-pad pair
+  - the sandwich-cutter clearance steps
+- **Organs:** two of them, copper-wrapped, sized from the coupon result.
+- **Dock:**
+  - registers on the badge outline
+  - spring pins on 4 button pads plus the ground test point
+  - test it on a scrap print before it touches the badge
+- **Tweezers tether:** a wire to board ground with strain relief.
+- **Final goose:** tape it, wire it and check continuity.
+
+**SW1: generator**
+- Draw the goose in KiCad:
+  - the outline is the board edge
+  - the channels are cut-outs
+  - the copper zones are filled shapes, each with a net name
+- The script turns the KiCad file into a top plate and a cutter plate.
+- Every dimension is a named parameter.
+- This is harder than straight traces because it needs arbitrary outlines and filled zones, so start with extruding the outline and the zone polygons.
+- **Fallback:** you model it by hand in CAD.
+
+**SW2: badge game**
+- A state machine: idle → remove organ A → deliver organ B → win or lose.
+- A countdown with a penalty per touch, and a 0.5 s lockout so one scrape doesn't count ten times.
+- LED flashes.
+
+**SW3: feel and pitch**
+- **Diagnostic app:** first, an app that shows all 8 button lines live. Everyone will use it for debugging.
+- **Animations:** the goose, the touch flinch, win and lose.
+- **Pitch:**
+  - the line is "a perfboard can't be goose-shaped and an ordered circuit board can't arrive tonight"
+  - run a live timer of the build
+
+**Order of work**
+1. Gate 0.
+2. Print the coupon while the app skeleton and the KiCad goose get started.
+3. The dock and a small one-channel playable version.
+4. The full goose.
+5. Polish.
+
+**Easter eggs**
+- Morse-code wiggles in a trace.
+- A hidden zone that triggers the Konami code.
+
+Tell me your picks on decisions 1–3. I can then draft the goose layout and channel dimensions, or the coupon model.
