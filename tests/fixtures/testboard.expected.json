@@ -72,5 +72,6 @@
   "zone": 64
  },
  "copper_area_total_mm2": 370.2155800539428,
- "user1_area_mm2": 80.0
+ "user1_area_mm2": 80.0,
+ "holes_area_mm2": 7.264933011426397
 }

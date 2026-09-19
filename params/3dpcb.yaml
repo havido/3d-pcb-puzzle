@@ -1,0 +1,16 @@
+# kicad2cad recipe: every tunable number in one place (CLAUDE.md rule).
+# Defaults until the coupon test (#10) replaces them with measured values.
+copper_layer: F.Cu          # this layer becomes raised copper; other copper layers are ignored (single-sided)
+base_thickness: 2.0         # mm of plastic under the copper
+copper_raise: 0.6           # mm the copper stands above the base
+arc_chord_mm: 0.02          # max error (mm) when approximating arcs and circles
+include_zones: true
+include_copper_graphics: true
+
+# Phase 4, not applied yet (setting them prints a warning):
+# min_drill: 1.0            # CLAUDE.md: holes ≥ 1 mm
+# small_drill: enlarge      # enlarge | skip | keep
+# alignment_holes: {diameter: 3.0, positions: auto}
+# extra_layers:
+#   User.1: {op: recess, depth: 1.5}
+#   User.2: {op: pocket, depth: 1.0}

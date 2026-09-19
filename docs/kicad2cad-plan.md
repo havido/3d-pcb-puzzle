@@ -4,7 +4,7 @@ Turn **any** KiCad board file (`.kicad_pcb`) into a 3D-printable 3DPCB board wit
 
 - Ticket: #15, "Generator v1". Its outputs feed #29 (cutter plate), #31 (design checks) and #16 (on-screen goose map).
 - Owner: havido (#15).
-- **Status (Sat 10:30): phases 0–2 done on branch `feat/kicad2cad`, 60 tests passing.** Next: phase 3 (3D + export).
+- **Status (Sat 10:25): phases 0–3 done on branch `feat/kicad2cad`, 75 tests passing.** The tool builds printable boards. **You can do H-A, H-B and H-C now** (§7). Next: phase 4 (recipe extras).
 - Written 2026-09-19. The golden numbers below were measured from `Archive 2/badge.kicad_pcb`.
 
 ## 1. Goal, scope, definition of done
@@ -31,9 +31,9 @@ This produces a printable board (3MF + STL) with the copper **raised** on the to
 | #16 on-screen goose map (talfee) | the per-layer SVG export |
 
 **Definition of done**
-- [ ] One command produces `board.3mf`, `board.stl`, `preview.png`, `plot_1to1.pdf`, `layers/*.svg` and `report.json`.
-- [ ] All automated tests pass locally and in GitHub Actions.
-- [ ] The badge file converts, and every golden number in §5 matches.
+- [x] One command produces `board.3mf`, `board.stl`, `preview.png`, `plot_1to1.pdf`, `layers/*.svg` and `report.json`.
+- [x] All automated tests pass locally and in GitHub Actions.
+- [x] The badge file converts, and every golden number in §5 matches.
 - [ ] The test board is sliced (H-A), checked on paper (H-B), printed and measured (H-C), and matches the model within the tolerances in §7.
 - [ ] Goose: the output from Adit's `goose.kicad_pcb` matches his hand CAD (#28) within 0.2 mm, or every difference is explained (H-D). *This waits on Adit committing his files.*
 - [ ] `tools/kicad2cad/README.md` explains usage and the recipe. #15 is closed with evidence (photos + report).
@@ -87,7 +87,7 @@ copper_layer: F.Cu          # this layer becomes raised copper; B.Cu is ignored,
 base_thickness: 2.0         # mm, plastic under the copper
 copper_raise: 0.6           # mm, raised copper height
 min_drill: 1.0              # CLAUDE.md: holes ≥ 1 mm
-small_drill: enlarge        # enlarge | skip | keep  (what to do with drills < min_drill)
+small_drill: enlarge        # enlarge | skip | keep  (what to do with drills < min_drill); built-in default is keep until phase 4
 arc_chord_mm: 0.02          # max chord error when turning arcs/circles into segments (0.1 would shrink a Ø6 hole by ~4 % in area)
 include_zones: true
 include_copper_graphics: true
@@ -109,7 +109,7 @@ tools/kicad2cad/
   parse.py         # nested lists → KicadBoard (phase 1)
   summary.py       # counts for --summary / report.json
   shapes.py        # KicadBoard → Board2D polygons (phase 2)
-  build.py         # Board2D + recipe → trimesh solids
+  build.py         # Board2D + recipe → 3D solid (manifold3d), Recipe + load_recipe
   export.py        # 3MF, STL, preview.png, plot_1to1.pdf, layers/*.svg, report.json
   compare.py       # compare two meshes (goose check, §6 phase 5)
   README.md
@@ -242,7 +242,14 @@ Each phase ends with something you can run and check. Times are for one person n
 
 **Verify:** open `out/badge/preview.png` next to the [iBOM](https://hackathon.github.io/badge-hardware/badge-ibom.html) (front side). The D-pad, the USB-C connector and the 4 corner holes must be in the same places, with nothing mirrored.
 
-### Phase 3: 3D + export (45–60 min)
+### Phase 3: 3D + export (45–60 min): ✅ done
+*As built:*
+- Solids come from `manifold3d` (`CrossSection` → `extrude`, then union), not `trimesh.extrude_polygon`: it handles shapes with holes directly and always returns a watertight solid.
+- The copper is extruded from z = 0 to the top and unioned with the base. The two solids **overlap** instead of just touching, which keeps the union robust.
+- `board.stl` is byte-for-byte repeatable; `board.3mf` isn't (its zip stores timestamps), so the repeatability test uses the STL. 3MF export needs `networkx` + `lxml` (in `requirements.txt`).
+- The PDF page is board + 10 mm margins + a 22 mm footer, and at least 120 mm wide so the footer fits. 1 mm in the drawing = 1 mm of paper at any size.
+- Recipe: `params/3dpcb.yaml`; unknown keys are an error. Phase 4 keys are read but warn until implemented.
+- Results: test board 4141 mm³, watertight, in 0.2 s. Badge 33 228 mm³, 86 k triangles, watertight, in 2.5 s end to end.
 - [ ] Flip Y (`y → −y`) once, here.
 - [ ] Solids:
   - `base = extrude(outline − drills, 0 → base_thickness)`
@@ -406,9 +413,11 @@ Keep the sheet. After H-C, lay the plastic board on top of it: the outlines and 
 | When | What |
 |---|---|
 | ✅ by 10:00 | Phases 0–1 (parser + 42 tests). |
-| ✅ by 10:30 | Phase 2 (shapes → 2D + `preview.png`, 60 tests). |
+| ✅ by 10:05 | Phase 2 (shapes → 2D + `preview.png`, 60 tests). |
+| ✅ by 10:25 | Phase 3 (3D + all exports, 75 tests). |
+| before 11:30 | H-A (slice) + H-B (paper check) on the test board; submit the test-board print (H-C) so it prints during the workshop. |
 | 11:30 | Workshop, then the badge app (your critical path to M2 at 21:00). |
-| after | Phase 3, then H-A + H-B, then submit the test-board print (H-C). Phases 4–6 and H-D: you in gaps, or hand over to Akshat-Kalra (#29/#31 build on this anyway). Decide at 11:30 based on progress. |
+| after | Measure the test board (H-C). Phases 4–6 and H-D: you in gaps, or hand over to Akshat-Kalra (#29/#31 build on this anyway). |
 
 **MVP cut line = phases 0–3 + H-A + H-B.** If only that is done, goose v1 can still be made from Adit's hand CAD (#28), and the pitch can show the tool converting the test board and the badge.
 

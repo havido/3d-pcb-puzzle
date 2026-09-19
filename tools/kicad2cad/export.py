@@ -1,5 +1,7 @@
-"""Files written for people to look at. Phase 2: preview.png. Phase 3 adds 3MF/STL, the 1:1 PDF,
-per-layer SVGs and report.json."""
+"""Everything kicad2cad writes: preview.png, board.stl/.3mf, plot_1to1.pdf, layers/*.svg, report.json."""
+import dataclasses
+import hashlib
+import json
 from pathlib import Path
 
 import matplotlib
@@ -12,6 +14,7 @@ from shapely.geometry import MultiPolygon, Polygon  # noqa: E402
 from shapely.geometry.polygon import orient  # noqa: E402
 
 from .shapes import Board2D  # noqa: E402
+from .shapes import as_multipolygon as as_mp  # noqa: E402
 
 COLORS = {"board": "#e6e2d8", "edge": "#5b5b5b", "copper": "#d9822b", "user": "#3b6fb6", "marker": "#d62728"}
 
@@ -76,4 +79,93 @@ def write_preview(b: Board2D, path: str | Path, layer: str = "F.Cu", title: str 
     fig.text(0.01, 0.995, "\n".join(lines), va="top", ha="left", fontsize=8, family="monospace")
     fig.savefig(path, dpi=150)
     plt.close(fig)
+    return path
+
+
+# ---- phase 3: 3D files, true-scale PDF, SVG layers, report -----------------------------------------
+
+def write_meshes(mesh, out: Path) -> dict[str, Path]:
+    """board.stl (binary, byte-for-byte repeatable) and board.3mf (mm units; the zip holds timestamps)."""
+    out.mkdir(parents=True, exist_ok=True)
+    stl, tmf = out / "board.stl", out / "board.3mf"
+    stl.write_bytes(mesh.export(file_type="stl"))
+    mesh.export(str(tmf), file_type="3mf")
+    return {"stl": stl, "3mf": tmf}
+
+
+def write_plot_1to1(b: Board2D, path: str | Path, layer: str = "F.Cu") -> Path:
+    """A PDF whose page is exactly the board size (+ margins): printed at 100 %, 1 mm on paper = 1 mm."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    x0, y0, x1, y1 = b.outline.bounds
+    w, h = x1 - x0, y1 - y0
+    margin, footer, min_page_w = 10.0, 22.0, 120.0               # mm; wide enough for the footer text
+    page_w, page_h = max(w + 2 * margin, min_page_w), h + 2 * margin + footer
+    fig = plt.figure(figsize=(page_w / 25.4, page_h / 25.4))
+    ax = fig.add_axes((0, 0, 1, 1))
+    ax.set_xlim(x0 - margin, x0 - margin + page_w)
+    ax.set_ylim(y1 + margin + footer, y0 - margin)                # Y down, as in KiCad; 1 data unit = 1 mm
+    ax.axis("off")
+    _draw(ax, b.outline, facecolor="none", edgecolor="black", linewidth=0.4)
+    _draw(ax, b.merged.get(layer, MultiPolygon()), facecolor="#bbbbbb", edgecolor="black", linewidth=0.2)
+    _draw(ax, b.holes, facecolor="white", edgecolor="black", linewidth=0.2)
+    bar = 50.0 if w >= 50 else 20.0
+    by = y1 + margin + 4
+    ax.plot([x0, x0 + bar], [by, by], color="black", linewidth=1.5, solid_capstyle="butt")
+    for x in (x0, x0 + bar):
+        ax.plot([x, x], [by - 1.5, by + 1.5], color="black", linewidth=0.8)
+    notes = [f"Print at 100 % (Actual size, not Fit to page). This bar must measure {bar:.0f} mm.",
+             f"TOP VIEW (as in KiCad) · {Path(b.source).name}",
+             f"Board {w:.1f} × {h:.1f} mm"]
+    for i, line in enumerate(notes):
+        ax.text(x0, by + 4 + 3.2 * i, line, fontsize=6, va="top")
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
+def _svg_path(geom) -> str:
+    parts = []
+    for p in (as_mp(geom)).geoms:
+        for ring in [p.exterior, *p.interiors]:
+            pts = list(ring.coords)
+            parts.append("M" + " L".join(f"{x:.4f},{y:.4f}" for x, y in pts[:-1]) + " Z")
+    return " ".join(parts)
+
+
+def write_svgs(b: Board2D, out: Path, layer: str = "F.Cu") -> list[Path]:
+    """One SVG per layer, in mm, KiCad orientation (Y down): outline, the copper layer, each user layer."""
+    out.mkdir(parents=True, exist_ok=True)
+    x0, y0, x1, y1 = b.outline.bounds
+    w, h = x1 - x0, y1 - y0
+    layers = {"outline": (b.outline, "#e6e2d8"), layer: (b.merged.get(layer, MultiPolygon()), COLORS["copper"])}
+    layers.update({name: (g, COLORS["user"]) for name, g in b.user_layers.items()})
+    written = []
+    for name, (geom, color) in layers.items():
+        f = out / f"{name}.svg"
+        f.write_text(f'<svg xmlns="http://www.w3.org/2000/svg" width="{w:.4f}mm" height="{h:.4f}mm" '
+                     f'viewBox="{x0:.4f} {y0:.4f} {w:.4f} {h:.4f}">\n'
+                     f'  <path fill="{color}" fill-rule="evenodd" d="{_svg_path(geom)}"/>\n</svg>\n')
+        written.append(f)
+    return written
+
+
+def write_report(path: Path, summary: dict, recipe, bld, files: dict[str, Path], seconds: float) -> Path:
+    m = bld.mesh
+    report = dict(summary)
+    report["build"] = {
+        "recipe": dataclasses.asdict(recipe),
+        "base_area_mm2": round(bld.base_area, 3),
+        "copper_area_mm2": round(bld.copper_area, 3),
+        "volume_mm3": round(float(m.volume), 3),
+        "volume_formula_mm3": round(bld.base_area * recipe.base_thickness + bld.copper_area * recipe.copper_raise, 3),
+        "bounds_mm": [[round(float(v), 4) for v in row] for row in m.bounds],
+        "triangles": int(len(m.faces)),
+        "watertight": bool(m.is_watertight),
+        "is_volume": bool(m.is_volume),
+        "files": {k: {"path": str(p), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for k, p in files.items()},
+        "seconds": round(seconds, 2),
+    }
+    report["warnings"] = summary["warnings"] + bld.warnings
+    path.write_text(json.dumps(report, indent=1) + "\n")
     return path

@@ -148,6 +148,8 @@ def expected() -> dict:
         "copper_area_mm2": copper,
         "copper_area_total_mm2": sum(copper.values()),
         "user1_area_mm2": (CHANNEL[1][0] - CHANNEL[0][0]) * (CHANNEL[1][1] - CHANNEL[0][1]),
+        # every drill: P1 pad 1 (1.0), the via (1.0), and the three plain holes
+        "holes_area_mm2": pi / 4 * (1.0 ** 2 + VIA["drill"] ** 2 + sum(d * d for _, d in H1["holes"])),
     }
 
 

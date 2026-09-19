@@ -5,3 +5,5 @@ mapbox_earcut>=1.0
 pyyaml>=6.0
 matplotlib>=3.8
 pytest>=8.0
+networkx>=3.0
+lxml>=5.0
