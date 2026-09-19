@@ -71,6 +71,7 @@ app/.venv/bin/python app/tools/badge.py img in.png app/goose/img/name.bin --size
 ```
 
 - **push** needs the badge on USB (badge off → plug → on, don't hold Start) and the IDE tab closed, because the IDE holds the serial port. It uses the IDE's own console protocol (`put`, `reload`) and uploads images too. **Verified on a real badge 2026-09-19.**
+- `badge.py logs [--seconds N] [--out FILE] [--grep TEXT]` prints the badge's USB serial console (every `badge.sys.log(...)` line, plus Lua tracebacks) in the terminal instead of the web IDE, timestamped and non-interactively runnable — this is also how to capture #20 touch-timing data from the diag app (`down UP t=...` / `up UP t=... held=...`). It holds the serial port like `push` does, so stop it (Ctrl-C, or use `--seconds`) before running `push`.
 - **No terminal?** `build` also writes `app/dist/<slug>.lua`, one file for the IDE's **Import app** (code only, no images). Its line numbers differ from the sources; `build` prints where each file starts.
 - Images: widgets reference them by file name, e.g. `badge.ui.image(parent, "goose_start.bin")` for `img/goose_start.png`. RGB565A8 is 3 bytes per pixel and the app has 64 KiB **in total**, so keep sprites small; `build` warns when over budget.
 - Run `lua app/tools/test.lua` before pushing. The rules tests drive `game.lua` through a fake ui, so they don't break when screens change.

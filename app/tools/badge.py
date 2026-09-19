@@ -5,6 +5,7 @@
   python app/tools/badge.py push   <target>   # build, then upload over USB serial
   python app/tools/badge.py img    <in.png> <out.bin> [--size WxH]
   python app/tools/badge.py ports              # list serial ports
+  python app/tools/badge.py logs               # print the badge's USB serial console
 
 Targets are in TARGETS below. `app/dist/<slug>.lua` is a single file for the
 IDE's **Import app** (code only, no images). `push` uploads the whole folder,
@@ -193,16 +194,29 @@ def find_port():
     return ports[0]
 
 
+def open_port(port):
+    """Open the serial port, or exit with a friendly message if it's busy."""
+    import serial
+    s = serial.Serial()
+    s.port, s.baudrate, s.timeout = port, 115200, 0.05
+    # pyserial asserts DTR/RTS on open by default; on the ESP32-C3's USB serial
+    # that pulses the chip's reset, rebooting the badge and killing the running
+    # app. Keep both released, like the web IDE does.
+    s.dtr = False
+    s.rts = False
+    try:
+        s.open()
+        return s
+    except serial.SerialException as e:
+        if "busy" in str(e).lower():
+            sys.exit(f"{port} is busy: close the badge IDE tab (it holds the port, even "
+                     "when disconnected) or any serial monitor, then try again.")
+        raise
+
+
 class Console:
     def __init__(self, port):
-        import serial
-        try:
-            self.s = serial.Serial(port, 115200, timeout=0.05)
-        except serial.SerialException as e:
-            if "busy" in str(e).lower():
-                sys.exit(f"{port} is busy: close the badge IDE tab (it holds the port, even "
-                         "when disconnected) or any serial monitor, then try again.")
-            raise
+        self.s = open_port(port)
         self.buf = ""
 
     def line(self, text):
@@ -259,6 +273,46 @@ def push(target, port):
         print("uploaded, but reload wasn't confirmed: reboot the badge if the app doesn't appear")
 
 
+# --- logs ---------------------------------------------------------------
+
+def emit_line(line, out_f, grep):
+    """Timestamp one line, print it (unless filtered by --grep) and append to --out."""
+    if grep and grep.lower() not in line.lower():
+        return
+    stamp = time.strftime("%H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}"
+    stamped = f"{stamp} {line}"
+    print(stamped, flush=True)
+    if out_f:
+        out_f.write(stamped + "\n")
+        out_f.flush()
+
+
+def logs(port, seconds, out, grep):
+    """Print the badge's USB serial console (app.log lines, tracebacks, ...)."""
+    port = port or find_port()
+    s = open_port(port)
+    print(f"listening on {port} (Ctrl-C to stop); push can't run while this holds the port",
+          file=sys.stderr)
+    out_f = open(out, "a") if out else None
+    end = time.time() + seconds if seconds is not None else None
+    buf = ""
+    try:
+        while end is None or time.time() < end:
+            data = s.read(4096)
+            if not data:
+                continue
+            buf += data.decode(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                emit_line(line, out_f, grep)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if out_f:
+            out_f.close()
+        s.close()
+
+
 # --- cli --------------------------------------------------------------------
 
 def main():
@@ -274,6 +328,12 @@ def main():
     sp.add_argument("out")
     sp.add_argument("--size", help="resize to WxH first, e.g. 56x56")
     sub.add_parser("ports")
+    sp = sub.add_parser("logs")
+    sp.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
+    sp.add_argument("--seconds", type=float,
+                     help="stop after N seconds (default: run until Ctrl-C)")
+    sp.add_argument("--out", help="also append the timestamped lines to this file")
+    sp.add_argument("--grep", help="only show lines containing this text (case-insensitive)")
     a = p.parse_args()
 
     if a.cmd == "build":
@@ -287,6 +347,8 @@ def main():
         print(f"wrote {a.out}: {len(data)} B")
     elif a.cmd == "ports":
         print("\n".join(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*")) or "none")
+    elif a.cmd == "logs":
+        logs(a.port, a.seconds, a.out, a.grep)
 
 
 if __name__ == "__main__":
