@@ -9,20 +9,21 @@ screens) and console log lines, printing PASS/FAIL per check. Saves a
 screenshot of each distinct screen to app/dist/shots/.
 
 The badge console's `press` only taps -- PRESSED then RELEASED a few ms
-later, see the Session docstring in badge.py -- it cannot hold a button the
-way a real seated organ does. Two things in game.lua need a hold:
-  - REQUIRE_SEATED: A only starts a round with organ A held in its seat.
-  - a seat must SETTLE (stay in one state) for SEAT_SETTLE_MS before it
-    counts, so a tap's real, brief "seated" instant is never sampled.
-This script tests the refused-start rule with the *real* defaults (a tap
-can never hold a seat, so it's always refused -- exactly what should
-happen), then sets game.lua's test knobs (`config goose_doctor t_seated 0`
-and `t_settle_ms 0`) to exercise the rest of the state machine with taps,
-and restores the real defaults in `finally`, even on failure. This means
-the *hold* requirement itself -- that a momentary touch must NOT start a
-round or count as delivered -- is not exercised end-to-end by this script
-beyond that one refused-start check; a real seated organ (or a manual test
-holding a button on the badge) is the only way to confirm the hold timing.
+later, see the Session docstring in badge.py. game.lua's rules don't need a
+hold any more (a touch is a touch), so this script drives the whole state
+machine with taps directly.
+
+game.lua ignores the goose lines (PENALTY/GOAL_1/GOAL_2) for
+INPUT_GRACE_MS = 500 ms after the app starts and again for the first 500 ms
+of every round, because the PENALTY net's 10 uF cap is still charging. This
+script waits past that window (GRACE_S, with margin for console round-trip
+time) before the first goose-line touch of each round.
+
+The one exposed, usable button is SW6, whose real badge.input.BUTTON
+constant isn't confirmed yet (see app/CLAUDE.md); game.lua accepts any of
+A, B or AUX1 as start/retry. This script presses "A" throughout -- the
+console's `press` injects a button event directly, so it works regardless
+of which constant SW6 turns out to be.
 """
 import argparse
 import re
@@ -35,7 +36,7 @@ import badge  # noqa: E402
 
 SLUG = "goose_doctor"
 SHOTS = badge.DIST / "shots"
-DEFAULT_SEATED, DEFAULT_SETTLE = 1, 150
+GRACE_S = 0.7   # > game.lua's INPUT_GRACE_MS (500 ms), with margin
 
 passed = failed = 0
 _shot_taken = set()
@@ -76,11 +77,6 @@ def timer_ms(texts):
     return None
 
 
-def set_knobs(s, seated, settle_ms):
-    s.cmd(f"config {SLUG} t_seated {seated}")
-    s.cmd(f"config {SLUG} t_settle_ms {settle_ms}")
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
@@ -96,71 +92,63 @@ def main():
     silent = False
     try:
         s = badge.Session(port)   # can itself time out if the badge is silent
-        # Defensive: a previous run that crashed before its own `finally`
-        # could have left the knobs non-default.
-        set_knobs(s, DEFAULT_SEATED, DEFAULT_SETTLE)
 
-        print("\n=== refused start (real defaults: A must hold organ A seated) ===")
+        print("\n=== start screen ===")
         s.open_app("Goose Doctor")
         t = s.texts()
         check("welcome to" in t and "Goose Doctor" in t, "opens on the start screen")
         snap(s, "start")
-        s.press("A")   # a tap can never leave a seat "held", so this must refuse
-        t = s.texts()
-        check("welcome to" in t, "A refuses to start: still on the start screen")
-
-        print("\n=== switching to test knobs (t_seated=0, t_settle_ms=0) ===")
-        s.press("B")   # contract: B quits from the start screen -> launcher
-        set_knobs(s, 0, 0)
-        s.open_app("Goose Doctor")
 
         print("\n=== start ===")
         s.press("A")
         t = s.texts()
         check("Operating..." in t, "A starts a round")
-        check("Remove the organ" in t, "starts on the remove stage")
+        check(any("TAIL" in x for x in t), "starts on the goal1 (tail) stage")
         t0 = timer_ms(t)
         check(t0 is not None and t0 >= 59000, f"timer starts near 60:00:00 (got {t0})")
-        snap(s, "operating_remove")
+        snap(s, "operating_goal1")
 
-        print("\n=== wall touch costs 5 s ===")
+        print(f"\n=== waiting {GRACE_S}s past the input grace window ===")
+        time.sleep(GRACE_S)
+
+        print("\n=== PENALTY touch costs 5 s ===")
         before = timer_ms(s.texts())
-        s.press("Up")
+        s.press("Right")
         touched = s.texts()
         after = timer_ms(touched)
         check(before is not None and after is not None and before - after >= 4900,
-              f"touching wall 1 costs ~5 s ({before} -> {after})")
-        check(any(x.startswith("OUCH! wall 1") for x in touched),
-              "flash shows which wall (best-effort: the flash is only up 250ms)")
+              f"touching PENALTY costs ~5 s ({before} -> {after})")
+        check(any(x.startswith("OUCH") for x in touched),
+              "flash shows the touch (best-effort: the flash is only up 250ms)")
 
         print("\n=== lockout: a second scrape inside the window costs nothing more ===")
-        s.press("Up")
+        s.press("Right")
         after2 = timer_ms(s.texts())
         check(after2 is not None and after - after2 < 500,
               f"lockout holds ({after} -> {after2})")
 
-        print("\n=== seat B before removal does nothing ===")
-        s.press("Right")
-        t = s.texts()
-        check("Remove the organ" in t, "seat B (deliver) is ignored before organ A is removed")
-
-        print("\n=== remove organ A -> deliver stage ===")
+        print("\n=== GOAL_2 before GOAL_1 does nothing ===")
         s.press("Left")
         t = s.texts()
-        check("Deliver the new organ" in t, "lifting organ A moves to the deliver stage")
-        snap(s, "operating_deliver")
+        check(any("TAIL" in x for x in t), "GOAL_2 is ignored before GOAL_1 (still stage goal1)")
 
-        print("\n=== deliver -> SUCCESS ===")
-        s.press("Right")
+        print("\n=== GOAL_1 (tail) -> stage goal2 ===")
+        s.press("Up")
         t = s.texts()
-        check("SUCCESS!" in t, "seating organ B wins")
+        check(any("BELLY" in x for x in t), "touching GOAL_1 moves to the goal2 (belly) stage")
+        snap(s, "operating_goal2")
+
+        print("\n=== GOAL_2 (belly) -> SUCCESS ===")
+        s.press("Left")
+        t = s.texts()
+        check("SUCCESS!" in t, "touching GOAL_2 in stage goal2 wins")
         check(any(x.startswith("Best ") for x in t), "a best time is shown")
         snap(s, "success")
 
         if a.slow:
             print("\n=== timeout failure (--slow, ~60 s) ===")
-            s.press("A")   # retry (t_seated=0, so no seating needed)
-            check("Remove the organ" in s.texts(), "retry starts a fresh round")
+            s.press("A")   # retry
+            check(any("TAIL" in x for x in s.texts()), "retry starts a fresh round")
             print("  waiting for the timer to run out ...")
             deadline = time.time() + 65
             timed_out = False
@@ -173,8 +161,8 @@ def main():
             if timed_out:
                 snap(s, "failure")
 
-        print("\n=== B quits to the launcher ===")
-        s.press("B")
+        print("\n=== leaving on the launcher (HOME exits) ===")
+        s.press("Home")
     except TimeoutError as e:
         # The badge went silent (no "badge> " prompt): per app/CLAUDE.md, stop
         # -- don't retry in a loop. Report what we can, then fall through to
@@ -183,14 +171,9 @@ def main():
         last = s.last_cmd if s is not None else "(Session handshake)"
         print(f"\nBADGE WENT SILENT: no prompt after command {last!r}\n  {e}")
     finally:
-        print("\nrestoring default knobs ...")
         if s is None:
-            print("  WARNING: never got a session, nothing to restore/close")
+            print("\n  WARNING: never got a session, nothing to close")
         else:
-            try:
-                set_knobs(s, DEFAULT_SEATED, DEFAULT_SETTLE)
-            except Exception as e:
-                print(f"  WARNING: failed to restore knobs: {e}")
             try:
                 s.press("Home")   # make sure we land on the launcher regardless
             except Exception as e:

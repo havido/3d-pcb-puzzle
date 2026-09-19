@@ -3,7 +3,7 @@
 This folder is the software that runs **on the hacker badge**: the game logic and the screens. The root `CLAUDE.md` covers the whole project; this file covers only `app/`. Work here doesn't touch the generator, prints or dock, and they don't touch this.
 
 - **Game logic** (input, state machine, countdown, LEDs): @Akshat-Kalra. Tickets #20–#23.
-- **Screens and animations** (UI, sprites, goose map): @talfee. Tickets #13, #14, #16, #27, #30. Her Canva designs are in `assets/`.
+- **Screens and animations** (UI, sprites, goose map): @talfee. Her handoff notes: `goose/UI_NOTES.md`. Tickets #13, #14, #16, #27, #30. Her Canva designs are in `assets/`.
 - How we split it: issue #40.
 - Stretch: #37 best-times table, #36 easter eggs.
 
@@ -20,19 +20,20 @@ This folder is the software that runs **on the hacker badge**: the game logic an
 
 ## How the goose talks to the badge
 
-The goose's copper zones are wired to the D-pad button lines; the tweezers are wired to badge GND. Touching copper = that button is pressed. The game sees ordinary `on_button` events: **no custom firmware**.
+This is the real, finished goose board (goose v3; see `goose/README.md` and the root `CLAUDE.md` "Circuit (final...)" / "Goose layout" / "Current board" bullets). The goose plate covers most of the D-pad and wires its own copper nets onto three of those lines via pogo pins; the tweezers are tethered to badge GND. Touching copper = that button is pressed. The game sees ordinary `on_button` events: **no custom firmware**.
 
-| Badge button | Board line | Game meaning | Event |
+| Badge button | Board line | Goose net | Game meaning |
 |---|---|---|---|
-| `UP` | BTN_2 (SW2) | Wall zone 1 | `PRESSED` = touch → time penalty |
-| `LEFT` | BTN_4 (SW4) | Seat A (organ to remove) | held = seated; `RELEASED` = picked up |
-| `RIGHT` | BTN_3 (SW3) | Seat B (delivery spot) | `PRESSED` = delivered → win |
-| `DOWN` | BTN_5 (SW8) | Wall zone 2 | `PRESSED` = touch → penalty (lets the screen show where) |
+| `RIGHT` | BTN_3 (SW3) | PENALTY (head/neck/back trace + breast/belly trace, joined) | touch → time penalty |
+| `UP` | BTN_2 (SW2) | GOAL_1 (tail loop) | touch → advance to stage `"goal2"` |
+| `LEFT` | BTN_4 (SW4) | GOAL_2 (belly loop) | touch during `"goal2"` → win |
+| n/a | SW8 GND pad | GND | tweezers tether |
 
-- **The button ↔ switch mapping is inferred from switch positions on the PCB, and the line ↔ meaning assignment is a placeholder.** Confirm both with the diagnostic app on a real badge, then fix them in **one** config table in the code. Nothing else may hard-code a button.
-- **A, B, START and HOME stay free for the player.** Use the default HOME exit (not `confirm_home=1`: it pauses ticks but not `badge.sys.ms()`, which breaks a countdown).
-- **Scraping a wall produces bursts of press/release events.** Count one penalty per zone, then ignore that zone for a lockout (starting value 500 ms, a named constant).
-- **Missed touches (#20):** the firmware's button scan rate is undocumented. The diagnostic app measures the shortest press it sees; if brief touches are lost, the hardware fix is a ~10 µF capacitor on the wall line (see `GOOSE_GAME.txt`).
+- **This mapping is measured, not inferred** — it is how goose v3 is actually wired — so it's final; nothing may hard-code a button outside the one `LINES` table in `game.lua`.
+- **The plate covers SW2, SW3, SW4, SW5, SW8 and SW10**, each with a relief pocket in the board back so it can never be held down. Only two switches are exposed through cut-outs: **SW7 (HOME)**, which the firmware intercepts before it reaches the app (default HOME-exit behaviour — not `confirm_home=1`, which pauses ticks but not `badge.sys.ms()`, breaking a countdown), and **SW6 (SW_HPM)**, the only button the player can actually press.
+- **We don't yet know which `badge.input.BUTTON` constant SW6 reports.** Candidates are A, B and AUX1. `game.lua`'s `START_BUTTONS` table accepts any of the three as start/retry rather than guessing one; the diagnostic app on a real badge will confirm which one SW6 actually is, and then this table can be narrowed.
+- **PENALTY has a 10 µF cap to GND** (see the root `CLAUDE.md`) to stretch brief touches so the button scan doesn't miss them. The cap is still charging for a moment after boot, so `game.lua` ignores all three goose lines for `INPUT_GRACE_MS` (a named constant, 500 ms) after the app starts and again for the first `INPUT_GRACE_MS` of every round.
+- **Scraping PENALTY produces bursts of press/release events.** Count one penalty, then ignore PENALTY for a lockout (starting value 500 ms, a named constant) before it can count again.
 - **LEDs are 1-based:** 1 upper left, 2 upper right, 3 middle right, 4 bottom right, 5 bottom left, 6 middle left. The goose sits over the bottom half, so 4 and 5 shine through it.
 
 ## Code layout
@@ -57,7 +58,7 @@ app/
 - Every tunable number (round time, penalty, lockout, LED colours) is a named constant at the top of `game.lua`.
 - **Two apps from one folder** (`TARGETS` in `tools/badge.py`, which also holds the manifests):
   - `goose` → **Goose Doctor** (`goose_doctor`): the real game, driver = `game.lua`.
-  - `preview` → **Goose UI Preview** (`goose_preview`): driver = `preview.lua`, a fake game for building screens without the goose. A next screen, LEFT previous, B / RIGHT touch wall 1 / 2, START switches stage, and a fake timer.
+  - `preview` → **Goose UI Preview** (`goose_preview`): driver = `preview.lua`, a fake game for building screens without the goose. A next screen, LEFT previous, B / RIGHT touch penalty, START switches stage, and a fake timer.
   - `main.lua` does `require("driver")`; the build generates `driver.lua` pointing at the right one.
 
 ## Workflow
@@ -86,30 +87,27 @@ texts and console log lines. It saves one screenshot per distinct screen to
 without it, the run takes well under a minute.
 
 - **`press` only taps** (PRESSED then RELEASED a few ms later) -- the console has
-  no way to hold a button down. `game.lua`'s `REQUIRE_SEATED` (organ A must be
-  *held* to start) and `SEAT_SETTLE_MS` (a seat must stay put for 150 ms to
-  count) both need a hold, so `playtest.py` first checks the refused-start rule
-  with the real defaults, then sets test-only knobs -- `config goose_doctor
-  t_seated 0` and `config goose_doctor t_settle_ms 0` -- to drive the rest of
-  the state machine with taps, and **always restores `t_seated 1` /
-  `t_settle_ms 150` in a `finally`**, even on failure or a badge that goes
-  silent mid-run. These knobs only exist via `badge.store`; a real build never
-  sets them, so production behaviour is untouched.
+  no way to hold a button down, but `game.lua`'s rules don't need a hold any
+  more (a touch is a touch), so `playtest.py` drives the whole state machine
+  with taps directly, with no test-only knobs to set or restore. It does need
+  to respect `INPUT_GRACE_MS` (500 ms): it waits past the grace window before
+  the first touch of each round, since the game itself ignores goose-line
+  touches until then (the PENALTY cap is still charging).
 - `app/tools/badge.py`'s `Session` (used by `playtest.py` and by the `ui` /
   `shot` / `press` / `open` CLI subcommands) is a `Console` plus `cmd` /
   `press` / `uitree` / `texts` / `shot` / `open_app`. Every call has a hard
   timeout (5 s default, 10 s for `shot`) -- it never retries in a loop against
   an unresponsive port.
 - **Safety allowlist.** Only send `press`, `uitree`, `shot`, `apps`, `help`,
-  `heap`, `ls`, `cat`, `config goose_doctor ...`, `config goose_diag ...`, and
-  the `push` flow (`mkdir` / `put` / `reload`) to the badge console. Never
+  `heap`, `ls`, `cat`, and the `push` flow (`mkdir` / `put` / `reload`) to the
+  badge console. Never
   `rm`, `factory_reset`, `prov`, `debug`, `appmode`, `seedall`, `badge_token`,
   `badge_profile`, `card`, `ripple`, `sponsormap`, `reboot`, `chess`,
   `blindbox_response`, `radio`, or anything else -- this badge is irreplaceable
   hardware. Open the serial port once per run and reuse it; leave a couple of
   seconds between separate runs.
-- **The badge sleeps when idle outside an app** (launcher / "My Badge" screen), and a sleeping badge's console is completely silent: no `badge> ` prompt, not even an echo. `press` can't wake it (it goes through the console). Wake it by hand (a button press on the badge; if that doesn't do it, switch it off and on), then run `push` / `playtest` straight away. Apps with `wake_lock=1` (Goose Doctor, Goose Diag) keep it awake, so an unattended badge should be left inside one. If a command times out, stop (don't retry or reopen the port), restore the knobs if a session is still open, close the port, and ask for the badge to be woken.
-- Don't touch the badge while a playtest runs: real presses mix with the injected ones, and a power cycle mid-run shows up as `Device not configured`. The knobs are then left changed, so restore them: `config goose_doctor t_seated 1` and `config goose_doctor t_settle_ms 150`.
+- **The badge sleeps when idle outside an app** (launcher / "My Badge" screen), and a sleeping badge's console is completely silent: no `badge> ` prompt, not even an echo. `press` can't wake it (it goes through the console). Wake it by hand (a button press on the badge; if that doesn't do it, switch it off and on), then run `push` / `playtest` straight away. Apps with `wake_lock=1` (Goose Doctor, Goose Diag) keep it awake, so an unattended badge should be left inside one. If a command times out, stop (don't retry or reopen the port), close the port, and ask for the badge to be woken.
+- Don't touch the badge while a playtest runs: real presses mix with the injected ones, and a power cycle mid-run shows up as `Device not configured`.
 
 ## Contract between `game.lua` and `ui.lua` (see issue #40)
 
@@ -119,17 +117,17 @@ The full spec (argument ranges, when each call happens) is the header comment of
 -- game.lua calls these; ui.lua implements them.
 ui.init(root)              -- build every widget once, in on_enter
 ui.show(screen, info)      -- "start" | "operating" | "success" | "failure"
-                           -- info = { time_left_ms >= 0, stage "remove" | "deliver",
+                           -- info = { time_left_ms >= 0, stage "goal1" | "goal2",
                            --          best_ms (nil = no best yet) }
                            -- also called again on "operating" when the stage changes
 ui.set_time(time_left_ms)  -- every 100 ms while operating, and at once on a touch
-ui.touch(zone)             -- 1 | 2: flinch + show which wall; at most once per zone per 500 ms
+ui.touch(zone)             -- always 1 (one PENALTY net): flinch/flash; at most once per 500 ms
 ui.tick(now_ms)            -- every ~20 ms; advance animations, return within a few ms
 ```
 
 Drivers (`game.lua`, `preview.lua`) implement `start(ui, now)`, `tick(now)`, `button(button, kind, now)`, `stop()`, called from `main.lua`.
 
-Buttons: A = Start/Retry, B = Quit (from start/success/failure), HOME always exits. `ui.lua` never reads buttons; the game's LEDs belong to `game.lua`.
+Buttons: the one exposed, usable button (SW6; its `badge.input.BUTTON` constant isn't confirmed yet, so `game.lua` accepts any of A / B / AUX1, see "How the goose talks to the badge") is Start/Retry. HOME always exits (default firmware behaviour, intercepted before the app sees it) -- there is no quit button. `ui.lua` never reads buttons; the game's LEDs belong to `game.lua`.
 
 **`lua app/tools/test.lua` enforces the contract.** It checks that `ui.lua` has all five functions and survives every screen, stage and edge value (no best time, 0 ms). If it fails on `ui.lua`, fix `ui.lua`; don't loosen the test.
 

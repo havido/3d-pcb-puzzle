@@ -139,22 +139,34 @@ do
   local ok, err = pcall(function()
     ui.init({})
     for _, name in ipairs({ "start", "operating", "success", "failure" }) do
-      for _, stage in ipairs({ "remove", "deliver" }) do
+      for _, stage in ipairs({ "goal1", "goal2" }) do
         ui.show(name, { time_left_ms = 59999, stage = stage, best_ms = 12340 })
         ui.show(name, { time_left_ms = 0, stage = stage, best_ms = nil })
       end
     end
     for _, ms in ipairs({ 0, 1, 9999, 60000, 3599999 }) do ui.set_time(ms) end
     ui.touch(1)
-    ui.touch(2)
     for now = 0, 2000, 20 do ui.tick(now) end
   end)
   check(ok, "contract call failed: " .. tostring(err))
 end
 
 -- 2. Game rules against a recording ui ------------------------------------
+-- LINES: RIGHT = PENALTY, UP = GOAL_1 (tail), LEFT = GOAL_2 (belly).
+-- START_BUTTONS: A, B or AUX1 (SW6's real constant is unconfirmed -- see
+-- app/CLAUDE.md). INPUT_GRACE_MS = 500 ignores goose lines for the first
+-- 500 ms of each round (the PENALTY cap is still charging).
 print("game.lua rules")
 do
+  local function load_game(st)
+    local f = assert(io.open(dist .. "goose_doctor/game.lua", "r"))
+    local game = assert(load(f:read("a"), "@game.lua", "t", sandbox(st.badge)))()
+    f:close()
+    return game
+  end
+
+  local GRACE = 500
+
   local st = new_badge()
   local B = st.badge.input.BUTTON
   local calls = { touches = {} }
@@ -165,10 +177,7 @@ do
     set_time = function(ms) calls.time = ms end,
     touch = function(zone) calls.touches[#calls.touches + 1] = zone end,
   }
-  local env = sandbox(st.badge)
-  local f = assert(io.open(dist .. "goose_doctor/game.lua", "r"))
-  local game = assert(load(f:read("a"), "@game.lua", "t", env))()
-  f:close()
+  local game = load_game(st)
   game.start(fake_ui, st.clock)
   local function btn(b, kind) game.button(b, kind, st.clock) end
   local function tick(ms)
@@ -179,50 +188,49 @@ do
     end
   end
 
-  local SETTLE = 150
   check(calls.screen == "start", "starts on the start screen")
-  btn(B.UP, 1); btn(B.UP, 2)
-  check(#calls.touches == 0, "wall touches are ignored before the round starts")
-
-  btn(B.A, 1)
-  check(calls.screen == "start", "A does nothing while organ A is out of its seat")
-  check(st.leds[1] and st.leds[1][1] == 255 and st.leds[1][2] == 120, "refused start blinks amber")
-  tick(700)
-  check(not (st.leds[1][1] == 255 and st.leds[1][2] == 120), "amber blink ends")
+  btn(B.UP, 1); btn(B.UP, 2); btn(B.RIGHT, 1); btn(B.RIGHT, 2); btn(B.LEFT, 1); btn(B.LEFT, 2)
+  check(#calls.touches == 0, "goose lines are ignored before the round starts")
   check(st.leds[1][1] > 0 and st.leds[1][3] == 0, "start screen breathes yellow")
 
-  btn(B.LEFT, 1)                       -- organ A goes into its seat
   btn(B.A, 1)
   local round_start = st.clock
-  check(calls.screen == "operating" and calls.info.stage == "remove", "A starts a round once organ A is seated")
-  tick(1000)
+  check(calls.screen == "operating" and calls.info.stage == "goal1", "A starts a round on stage goal1")
+
+  btn(B.RIGHT, 1); btn(B.RIGHT, 2)
+  check(#calls.touches == 0, "PENALTY is ignored during the input grace window")
+  check(st.clock - round_start < GRACE, "grace check ran before the window elapsed")
+  tick(1000)   -- also clears the input grace window (500 ms)
   check(calls.time and calls.time <= 59100 and calls.time >= 59000, "timer counts down (refreshed every 100 ms)")
 
-  btn(B.UP, 1); btn(B.UP, 2); btn(B.UP, 1); btn(B.UP, 2)
-  check(#calls.touches == 1, "a scrape inside the lockout counts once")
+  btn(B.RIGHT, 1); btn(B.RIGHT, 2)
+  check(#calls.touches == 1, "PENALTY counts once the grace window has passed")
+  check(calls.time == 60000 - (st.clock - round_start) - 5000,
+        "a touch costs 5 s, shown immediately (" .. calls.time .. ")")
   check(st.leds[4] and st.leds[4][1] == 255, "bottom LEDs flash red on a touch")
+
+  btn(B.RIGHT, 1); btn(B.RIGHT, 2)
+  check(#calls.touches == 1, "a second scrape inside the lockout counts once")
   tick(600)
   check(st.leds[4] and st.leds[4][2] > 0, "touch flash ends (countdown colour is back)")
-  btn(B.DOWN, 1); btn(B.DOWN, 2)
-  check(#calls.touches == 2 and calls.touches[2] == 2, "wall 2 is a separate zone")
-  check(calls.time == 60000 - (st.clock - round_start) - 10000,
-        "each touch costs 5 s, shown immediately (" .. calls.time .. ")")
-  tick(200)
 
-  btn(B.RIGHT, 1); tick(SETTLE + 40); btn(B.RIGHT, 2)
-  check(calls.screen == "operating", "seat B does nothing before organ A is removed")
-  btn(B.LEFT, 2); tick(60); btn(B.LEFT, 1); tick(SETTLE + 40)
-  check(calls.info.stage == "remove", "a wobble shorter than the settle time doesn't remove organ A")
-  btn(B.LEFT, 2); tick(SETTLE + 40)
-  check(calls.info.stage == "deliver", "lifting organ A for the settle time moves to stage deliver")
-  check(st.leds[1][2] > 0 or st.leds[1][1] > 0, "LEDs are on after the stage change")
+  btn(B.LEFT, 1); btn(B.LEFT, 2)
+  check(calls.screen == "operating" and calls.info.stage == "goal1",
+        "GOAL_2 during stage goal1 does nothing")
+  check(#calls.touches == 1, "GOAL_2 before GOAL_1 is not a penalty either")
 
-  btn(B.RIGHT, 1); tick(60); btn(B.RIGHT, 2); tick(SETTLE + 40)
-  check(calls.screen == "operating", "a brief brush on seat B (tweezers) doesn't win")
-  btn(B.RIGHT, 1)
+  btn(B.UP, 1); btn(B.UP, 2)
+  check(calls.info.stage == "goal2", "GOAL_1 advances to stage goal2")
+  check(st.leds[1][2] == 255 and st.leds[1][1] == 0, "green pulse on reaching GOAL_1")
+
+  btn(B.UP, 1); btn(B.UP, 2)
+  check(calls.screen == "operating" and calls.info.stage == "goal2",
+        "touching GOAL_1 again during stage goal2 does nothing")
+
+  btn(B.LEFT, 1)
   local delivered_at = st.clock
-  tick(SETTLE + 40)
-  check(calls.screen == "success", "seating organ B for the settle time wins")
+  btn(B.LEFT, 2)
+  check(calls.screen == "success", "GOAL_2 during stage goal2 wins")
   check(st.store.best_ms == delivered_at - round_start, "best time counts to the moment of contact")
   local lit = 0
   for i = 1, 6 do if st.leds[i][2] == 255 then lit = lit + 1 end end
@@ -230,20 +238,16 @@ do
   tick(2100)
   check(st.leds[3][2] == 160 and st.leds[6][2] == 160, "chase ends in solid green")
 
-  btn(B.RIGHT, 2)
-  btn(B.A, 1)
-  check(calls.screen == "success", "retry is refused until organ A is back in its seat")
-  btn(B.LEFT, 1); btn(B.A, 1)
-  check(calls.screen == "operating" and calls.info.stage == "remove", "A retries with a fresh round")
+  btn(B.B, 1)   -- retry with a different accepted start button
+  check(calls.screen == "operating" and calls.info.stage == "goal1", "B retries with a fresh round")
   tick(61000)
   check(calls.screen == "failure", "running out of time fails")
 
-  btn(B.A, 1)
-  for _ = 1, 12 do btn(B.UP, 1); btn(B.UP, 2); tick(600) end
-  check(calls.screen == "failure", "wall touches eat the clock until time runs out")
-
-  btn(B.B, 1)
-  check(st.exited, "B quits from the result screen")
+  btn(B.AUX1, 1)   -- retry with the third accepted start button
+  check(calls.screen == "operating", "AUX1 also starts/retries a round")
+  tick(GRACE + 20)
+  for _ = 1, 12 do btn(B.RIGHT, 1); btn(B.RIGHT, 2); tick(600) end
+  check(calls.screen == "failure", "PENALTY touches eat the clock until time runs out")
 end
 
 -- 3. LED countdown ------------------------------------------------------------
@@ -269,7 +273,6 @@ do
     return n
   end
   game.start(fake_ui, st.clock)
-  game.button(B.LEFT, 1, st.clock)
   game.button(B.A, 1, st.clock)
   tick(100)
   check(lit() == 6 and st.leds[1][2] == 180, "full time: all 6 LEDs yellow")
@@ -286,7 +289,7 @@ do
     if lit() == 6 then seen_on = true elseif lit() == 0 then seen_off = true end
   end
   check(seen_on and seen_off, "last 10 s: all LEDs blink red")
-  game.button(B.UP, 1, st.clock)
+  game.button(B.RIGHT, 1, st.clock)
   check(st.leds[4][1] == 255 and st.leds[5][1] == 255, "a touch lights the bottom LEDs red even while blinking")
 end
 

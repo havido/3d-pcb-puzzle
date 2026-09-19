@@ -11,23 +11,30 @@
 --       screen: "start" | "operating" | "success" | "failure"
 --       info (always a table):
 --         time_left_ms  integer >= 0    countdown remaining
---         stage         "remove" | "deliver"   (which organ job is on)
+--         stage         "goal1" | "goal2"   which goal is next: goal1 (the
+--                       tail loop) first, then goal2 (the belly loop)
 --         best_ms       integer or nil  fastest win so far, nil = none yet
 --       Called on every screen change, and again when the stage changes
 --       (same screen "operating", new stage).
 --   M.set_time(ms)
 --       Countdown changed, ms >= 0. Called every 100 ms while operating, and
---       immediately after a wall touch (the time jumps down).
+--       immediately after a penalty touch (the time jumps down).
 --   M.touch(zone)
---       The tweezers hit a wall. zone is 1 or 2. Play the flinch/flash here.
---       Called at most once per zone per half second.
+--       The tweezers hit the PENALTY net. zone is always 1 (one penalty
+--       net on this board). Play the flinch/flash here. Called at most once
+--       per half second.
 --   M.tick(now_ms)
 --       Called every ~20 ms with badge.sys.ms(). Advance animations here.
 --       Must return in a few ms: no loops that wait, no big redraws.
 --
--- Buttons are game.lua's job, so never read them here: A = Start/Retry and
--- B = Quit are shown on screen only. Don't create widgets outside init.
--- The "preview" app (badge.py push preview) drives all of this by hand.
+-- Buttons are game.lua's job, so never read them here: only the exposed SW6
+-- button starts/retries (its exact badge.input.BUTTON constant isn't known
+-- yet -- game.lua accepts any of A, B or AUX1), and HOME always exits
+-- (default firmware behaviour, intercepted before it reaches the app).
+-- Show a generic "press to start/retry" hint, not a specific button name,
+-- and no "quit" hint -- HOME is the only way out and it isn't a game button.
+-- Don't create widgets outside init. The "preview" app (badge.py push
+-- preview) drives all of this by hand.
 
 local M = {}
 
@@ -65,11 +72,11 @@ local function screen(root, name, color)
   return s
 end
 
--- "A Retry / B Quit" style button hint in the bottom-right corner.
-local function buttons_hint(parent, a_text)
+-- "Press to Start/Retry" + "HOME exits" hint in the bottom-right corner.
+local function buttons_hint(parent, verb)
   local p = panel(parent, 96, 52)
   p:align("bottom_right", -10, -10)
-  local l = text(p, "A " .. a_text .. "\nB Quit", 16)
+  local l = text(p, "Press to\n" .. verb .. "\nHOME exits", 14)
   l:align("center", 0, 0)
 end
 
@@ -133,8 +140,8 @@ function M.show(name, info)
   info = info or {}
   if name == "operating" then
     M.set_time(info.time_left_ms or 0)
-    stage_label:set_text(info.stage == "deliver" and "Deliver the new organ"
-                         or "Remove the organ")
+    stage_label:set_text(info.stage == "goal2" and "Now the BELLY loop"
+                         or "Reach the TAIL loop")
   elseif name == "success" then
     best_label:set_text(info.best_ms and ("Best " .. fmt_time(info.best_ms)) or "")
   end
@@ -145,7 +152,7 @@ function M.set_time(ms)
 end
 
 function M.touch(zone)
-  flash_label:set_text("OUCH! wall " .. zone)
+  flash_label:set_text("OUCH!")
   flash_box:hidden(false)
   flash_box:bring_to_front()
   flash_until = badge.sys.ms() + FLASH_MS

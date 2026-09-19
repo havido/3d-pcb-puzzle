@@ -1,8 +1,8 @@
 -- preview.lua: fake game for building screens without the goose or game.lua.
 -- Built as the separate app "Goose UI Preview" (slug goose_preview).
 --   A      next screen          LEFT   previous screen
---   B      touch wall 1         RIGHT  touch wall 2
---   START  switch stage (remove / deliver)
+--   B      touch penalty        RIGHT  touch penalty (same effect)
+--   START  switch stage (goal1 / goal2)
 -- On the operating screen a fake timer counts down from 60 s and loops.
 
 local M = {}
@@ -13,7 +13,7 @@ local K = badge.input.KIND
 
 local ui
 local index = 1
-local stage = "remove"
+local stage = "goal1"
 local timer_start, next_update = 0, 0
 
 local function info(now)
@@ -50,9 +50,9 @@ function M.button(button, kind, now)
   elseif button == B.B then
     ui.touch(1)
   elseif button == B.RIGHT then
-    ui.touch(2)
+    ui.touch(1)
   elseif button == B.START then
-    stage = stage == "remove" and "deliver" or "remove"
+    stage = stage == "goal1" and "goal2" or "goal1"
     show(now)
   end
 end
