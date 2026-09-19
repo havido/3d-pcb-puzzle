@@ -4,7 +4,7 @@ Turn **any** KiCad board file (`.kicad_pcb`) into a 3D-printable 3DPCB board wit
 
 - Ticket: #15, "Generator v1". Its outputs feed #29 (cutter plate), #31 (design checks) and #16 (on-screen goose map).
 - Owner: havido (#15).
-- **Status (Sat 11:15): phases 0–4 done on branch `feat/kicad2cad`, 95 tests passing.** Use `--recipe params/3dpcb.yaml` for boards you'll print. **Still to do by hand: H-A, H-B, H-C** (§7). Next: phase 5 (goose comparison) once Adit's files are in #28, and phase 6 (docs/handoff).
+- **Status (Sat 10:50): phases 0–4 done on branch `feat/kicad2cad`, 95 tests passing.** Use `--recipe params/3dpcb.yaml` for boards you'll print. **Still to do by hand: H-A, H-B, H-C** (§7). Next: phase 5 (goose comparison) once Adit's files are in #28, and phase 6 (docs/handoff).
 - Written 2026-09-19. The golden numbers below were measured from `Archive 2/badge.kicad_pcb`.
 
 ## 1. Goal, scope, definition of done
@@ -421,7 +421,7 @@ Keep the sheet. After H-C, lay the plastic board on top of it: the outlines and 
 | ✅ by 10:00 | Phases 0–1 (parser + 42 tests). |
 | ✅ by 10:05 | Phase 2 (shapes → 2D + `preview.png`, 60 tests). |
 | ✅ by 10:25 | Phase 3 (3D + all exports, 75 tests). |
-| ✅ by 11:15 | STL watertightness fix + phase 4 (recipe extras, 95 tests). |
+| ✅ by 10:50 | STL watertightness fix + phase 4 (recipe extras, 95 tests). |
 | before 11:30 | H-A (slice) + H-B (paper check) on the test board; submit the test-board print (H-C) so it prints during the workshop. |
 | 11:30 | Workshop, then the badge app (your critical path to M2 at 21:00). |
 | after | Measure the test board (H-C). Phases 4–6 and H-D: you in gaps, or hand over to Akshat-Kalra (#29/#31 build on this anyway). |
