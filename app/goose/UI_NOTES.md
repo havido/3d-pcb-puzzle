@@ -39,6 +39,47 @@ you lose when the clock hits zero. There is no organ to pick up or put down.
 - Everything else you designed still fits: start, operating with the big timer,
   success, failure.
 
+## Rotated art (2026-09-19: the plate holds the badge a quarter turn)
+
+The goose plate holds the badge **rotated a quarter turn, top on the left**
+(root `CLAUDE.md`). So every screen is authored **portrait, 240x320** --
+drawn the way a player looking at the mounted plate would want to see it --
+and converted with `badge.py img --rotate cw` (PIL `transpose(ROTATE_270)`,
+i.e. 270 deg CCW = 90 deg CW), which turns it into the 320x240 framebuffer
+the badge actually scans out. `--rotate` happens before any `--size`.
+
+**Consequence: text can't rotate.** LVGL labels are never rotated, so any
+label ui.lua draws on top of the rotated art reads sideways to the player.
+The rule going forward:
+
+- A **fixed string** (doesn't change at runtime) becomes a small pre-rotated
+  image: render it upright and horizontal with Pillow (easy to read, like a
+  normal label), rotate it the same way (`transpose(Image.ROTATE_270)`), and
+  ship it as an indexed `.bin`. `app/tools/make_text_art.py` does this for
+  the operating screen's two stage cues and the touch flash's "OUCH!" --
+  regenerate it with `app/.venv/bin/python app/tools/make_text_art.py`
+  whenever a string, font or size changes, then rebuild/push. It uses the
+  DejaVu font bundled at `app/tools/fonts/` (see `LICENSE_DEJAVU` there) so
+  the build doesn't depend on whatever fonts happen to be on your machine.
+- A **live value** (the countdown) can't be pre-rendered, so it isn't text
+  at all: `ui.lua` builds it out of rotated `badge.ui.box` rectangles, one
+  seven-segment digit at a time (see the "Countdown" comment block in
+  `ui.lua` for the local-space-then-rotate math). Widgets are created once
+  in `init` and only `hidden()` is toggled per digit value in `set_time`.
+
+When you add a new screen or a new bit of on-screen text, work out where
+that maps to before drawing it: find a free background rectangle on the
+*rotated* 320x240 render (a quick way: diff each pixel against the
+background colour and look for a run of columns/rows with nothing in them),
+then remember a run that's long in screen-Y and narrow in screen-X reads as
+a normal left-to-right line **to the player** (screen-Y is the player's
+left-right axis after the quarter turn; screen-X is the player's up-down
+axis) -- that's the shape the timer panel and the stage-cue strip both use.
+A run that's long in screen-X and narrow in screen-Y reads as a vertical
+column to the player instead, which is why the success screen's only free
+area (a strip across the top of the rotated render) isn't used for a
+best-time readout -- see the "best_ms" note in `ui.lua`'s header comment.
+
 ## Getting your artwork onto the badge
 
 The screen is **320x240**, and a whole app (code + every image) has to fit in a

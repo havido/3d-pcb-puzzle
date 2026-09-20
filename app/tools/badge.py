@@ -3,7 +3,7 @@
 
   python app/tools/badge.py build  <target>   # app/dist/<slug>/ + app/dist/<slug>.lua
   python app/tools/badge.py push   <target>   # build, then upload over USB serial
-  python app/tools/badge.py img    <in.png> <out.bin> [--size WxH] [--colors 16|4|2]
+  python app/tools/badge.py img    <in.png> <out.bin> [--size WxH] [--colors 16|4|2] [--rotate cw|ccw]
   python app/tools/badge.py ports              # list serial ports
   python app/tools/badge.py logs               # print the badge's USB serial console
 
@@ -272,11 +272,20 @@ def _indexed_bin(im, colors):
     return bytes(out)
 
 
-def png_to_bin(path, size=None, colors=None):
+def png_to_bin(path, size=None, colors=None, rotate=None):
     """PNG -> LVGL v9 .bin. colors=None (default) is RGB565A8 (byte-for-byte
-    the IDE's format); colors=16/4/2 is indexed I4/I2/I1 (see above)."""
+    the IDE's format); colors=16/4/2 is indexed I4/I2/I1 (see above).
+    rotate="cw"/"ccw" rotates a quarter turn before any --size resize -- for
+    art authored portrait for a badge mounted rotated a quarter turn (see
+    app/CLAUDE.md and goose/UI_NOTES.md)."""
     from PIL import Image
+    if rotate and rotate not in ("cw", "ccw"):
+        raise ValueError(f"--rotate must be 'cw' or 'ccw', got {rotate!r}")
     im = Image.open(path).convert("RGBA")
+    if rotate == "cw":
+        im = im.transpose(Image.ROTATE_270)   # 270 deg CCW == 90 deg CW
+    elif rotate == "ccw":
+        im = im.transpose(Image.ROTATE_90)
     if size:
         im = im.resize(size, Image.LANCZOS)
     return _indexed_bin(im, colors) if colors else _rgb565a8_bin(im)
@@ -298,7 +307,9 @@ def _selftest():
 
 # --- push -------------------------------------------------------------------
 
-CHUNK, PAUSE = 128, 0.02     # badge RX ring is 256 B: pace writes like the IDE
+CHUNK, PAUSE = 64, 0.02      # badge RX ring is 256 B; half the IDE's chunk,
+                             # because 128 B bursts sometimes drop bytes and the
+                             # badge then waits forever for the rest of a file
 
 
 def find_port():
@@ -630,7 +641,8 @@ def push(target, port):
         if not resync(c):
             sys.exit("The badge is not responding. Wake it (it sleeps on the "
                      "launcher) or switch it off and on, then try again.")
-        if any(n.endswith(".bin") for n in files):
+        binary = any(n.endswith(".bin") for n in files)
+        if binary:
             c.buf = ""
             c.line("put --binary")
             if "PUT BINARY OK" not in c.wait("badge> ", 5):
@@ -641,11 +653,29 @@ def push(target, port):
         for name in sorted(files):
             data = files[name]
             print(f"  {name} ({len(data)} B) ...", end=" ", flush=True)
-            c.buf = ""
-            c.line(f"put {remote}/{name} {len(data)}")
-            c.wait("READY")
-            c.raw(data)
-            c.wait(f"OK {len(data)}", 60)   # big images need flash time
+            for attempt in range(3):
+                if binary:
+                    # `put --binary` only arms the NEXT put: without re-arming,
+                    # the console translates CR bytes in the payload and the
+                    # badge waits forever for the missing bytes.
+                    c.buf = ""
+                    c.line("put --binary")
+                    c.wait("badge> ", 5)
+                c.buf = ""
+                c.line(f"put {remote}/{name} {len(data)}")
+                c.wait("READY")
+                c.raw(data)
+                try:
+                    c.wait(f"OK {len(data)}", 60)   # big images need flash time
+                    break
+                except TimeoutError:
+                    # A dropped byte leaves the badge waiting for the rest of
+                    # the file: pad it out, then send the whole file again.
+                    print("retry", end=" ", flush=True)
+                    if not resync(c):
+                        raise
+            else:
+                raise TimeoutError(f"{name} would not upload after 3 tries")
             print("ok")
         c.buf = ""
         c.line("reload")
@@ -764,6 +794,9 @@ def main():
     sp.add_argument("--colors", type=int, choices=(16, 4, 2),
                      help="indexed output instead of RGB565A8: 16=I4, 4=I2, 2=I1 "
                           "(much smaller; use for full-screen art)")
+    sp.add_argument("--rotate", choices=("cw", "ccw"),
+                     help="rotate a quarter turn before --size (art authored portrait "
+                          "for a badge mounted rotated a quarter turn)")
     sub.add_parser("ports")
     sp = sub.add_parser("logs")
     sp.add_argument("--port", help="serial port (default: first /dev/cu.usbmodem*)")
@@ -791,7 +824,7 @@ def main():
         push(a.target, a.port)
     elif a.cmd == "img":
         size = tuple(int(n) for n in re.split("[x×]", a.size)) if a.size else None
-        data = png_to_bin(a.png, size, colors=a.colors)
+        data = png_to_bin(a.png, size, colors=a.colors, rotate=a.rotate)
         Path(a.out).write_bytes(data)
         print(f"wrote {a.out}: {len(data)} B")
         if len(data) > 40 * 1024:
