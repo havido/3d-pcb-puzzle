@@ -25,13 +25,9 @@ APP = Path(__file__).resolve().parent.parent
 DIST = APP / "dist"
 
 COMMON = {"api": "2", "heap_kb": "48", "wake_lock": "1"}
-DRIVERS = ("game", "preview")   # interchangeable modules behind require("driver")
-
 TARGETS = {
-    "goose": {"dir": "goose", "driver": "game",
+    "goose": {"dir": "goose",
               "manifest": {"slug": "goose_doctor", "name": "Goose Doctor", "icon": "GD"}},
-    "preview": {"dir": "goose", "driver": "preview",
-                "manifest": {"slug": "goose_preview", "name": "Goose UI Preview", "icon": "GP"}},
     "diag": {"dir": "diag"},    # single file with its own manifest header
 }
 
@@ -69,16 +65,13 @@ def collect(target):
     main_src = (src_dir / "main.lua").read_text()
     header, main_code = split_header(main_src)
 
-    if "driver" not in t:       # plain single-file app
+    if "manifest" not in t:     # plain single-file app (diag)
         return header, {"main": main_code}, {}
 
     modules = {"main": main_src}
     for f in sorted(src_dir.glob("*.lua")):
-        name = f.stem
-        if name == "main" or (name in DRIVERS and name != t["driver"]):
-            continue
-        modules[name] = f.read_text()
-    modules["driver"] = f'return require("{t["driver"]}")\n'
+        if f.stem != "main":
+            modules[f.stem] = f.read_text()
 
     images = {}
     for png in sorted((src_dir / "img").glob("*.png")):

@@ -161,8 +161,8 @@ local goose = badge.ui.image(s, "goose_idle.bin")
 Then build and push as usual:
 
 ```sh
-for t in goose preview diag; do app/.venv/bin/python app/tools/badge.py build $t; done
-app/.venv/bin/python app/tools/badge.py push preview
+app/.venv/bin/python app/tools/badge.py build goose
+app/.venv/bin/python app/tools/badge.py push goose
 ```
 
 ### Gotcha: the web IDE's image button is not for this
@@ -189,7 +189,6 @@ buttons_hint(s, "Start")                          -- existing label-based hint, 
 ## Seeing your screens on a real badge
 
 ```sh
-app/.venv/bin/python app/tools/badge.py push preview   # your hand-driven preview app
 app/.venv/bin/python app/tools/playtest.py             # plays a whole game by itself
 app/.venv/bin/python app/tools/badge.py shot -o x.png  # screenshot any time
 ```
@@ -202,7 +201,7 @@ app/.venv/bin/python app/tools/badge.py shot -o x.png  # screenshot any time
 
 ## Before you push
 
-1. `for t in goose preview diag; do app/.venv/bin/python app/tools/badge.py build $t; done`
+1. `for t in goose diag; do app/.venv/bin/python app/tools/badge.py build $t; done`
 2. `lua app/tools/test.lua` must print ALL TESTS PASSED. It checks that `ui.lua`
    still provides `init`, `show`, `set_time`, `touch`, `tick` and survives every
    screen, stage and edge value. If it fails on `ui.lua`, fix `ui.lua`.
