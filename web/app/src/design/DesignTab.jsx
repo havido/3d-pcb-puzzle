@@ -46,6 +46,10 @@ export default function DesignTab({ onConvert }) {
   const [selection, setSelection] = useState(null)
   const [activeNet, setActiveNet] = useState(doc.nets[0]?.name || null)
   const [activeWidth, setActiveWidth] = useState(3.0)
+  // Raw text of the width/diameter inspector field, kept separate from the document
+  // so mid-edit states (empty, a trailing ".") can be typed without either fighting
+  // the input or ever committing a non-positive size to the doc.
+  const [sizeText, setSizeText] = useState('')
   const [samples, setSamples] = useState([])
   const [busy, setBusy] = useState(null)               // 'convert' | 'open' while the API works
   const [error, setError] = useState(null)
@@ -86,6 +90,36 @@ export default function DesignTab({ onConvert }) {
     : selection.id === 'outline' ? { id: 'outline', kind: 'outline', points: doc.outline.points }
     : doc.objects.find((o) => o.id === selection.id) || null
 
+  // Reset the field text when the selection itself changes (a different object, or
+  // none). Deliberately not keyed on the object's width/d: that would overwrite
+  // whatever the user is mid-typing every time a keystroke commits a valid value.
+  useEffect(() => {
+    if (selected && selected.kind === 'trace') setSizeText(String(selected.width))
+    else if (selected && selected.kind === 'hole') setSizeText(String(selected.d))
+    else setSizeText('')
+  }, [selected?.id])
+
+  // Shared by the Width and Diameter fields: always show what was typed, but only
+  // ever forward a positive, finite number to the document — an empty or partial
+  // value (e.g. "2.") is held here until it parses, never written as 0.
+  function handleSizeChange(text) {
+    setSizeText(text)
+    const value = Number(text)
+    if (text.trim() !== '' && Number.isFinite(value) && value > 0) {
+      dispatch({ type: 'setWidth', id: selected.id, width: value })
+    }
+  }
+
+  // Clicking a net always makes it the active net for new objects; if something is
+  // already selected, it also re-assigns that object — the behaviour most people
+  // expect on the first try.
+  function selectNet(name) {
+    setActiveNet(name)
+    if (selected && (selected.kind === 'trace' || selected.kind === 'hole')) {
+      dispatch({ type: 'setNet', id: selected.id, net: name })
+    }
+  }
+
   function applyPreset(preset) {
     const bb = polygonBounds(doc.outline.points)
     const width = Math.max(bb.maxX - bb.minX, 20)
@@ -108,10 +142,13 @@ export default function DesignTab({ onConvert }) {
         </div>
 
         <h2>Nets</h2>
+        {selected && (selected.kind === 'trace' || selected.kind === 'hole') && (
+          <p className="dim tip">Click a net to move the selection onto it.</p>
+        )}
         <ul className="net-list">
           {doc.nets.map((n) => (
             <li key={n.name}>
-              <button className={activeNet === n.name ? 'on' : ''} onClick={() => setActiveNet(n.name)}>
+              <button className={activeNet === n.name ? 'on' : ''} onClick={() => selectNet(n.name)}>
                 <span className="swatch" style={{ background: n.color }} />
                 {n.name}
               </button>
@@ -169,8 +206,8 @@ export default function DesignTab({ onConvert }) {
           <div className="inspector-fields">
             <label>
               Width (mm)
-              <input type="number" min="0.1" step="0.1" value={selected.width}
-                     onChange={(e) => dispatch({ type: 'setWidth', id: selected.id, width: Number(e.target.value) })} />
+              <input type="number" min="0.1" step="0.1" value={sizeText}
+                     onChange={(e) => handleSizeChange(e.target.value)} />
             </label>
             <label>
               Net
@@ -185,8 +222,8 @@ export default function DesignTab({ onConvert }) {
           <div className="inspector-fields">
             <label>
               Diameter (mm)
-              <input type="number" min="0.1" step="0.1" value={selected.d}
-                     onChange={(e) => dispatch({ type: 'setWidth', id: selected.id, width: Number(e.target.value) })} />
+              <input type="number" min="0.1" step="0.1" value={sizeText}
+                     onChange={(e) => handleSizeChange(e.target.value)} />
             </label>
             <label>
               Net

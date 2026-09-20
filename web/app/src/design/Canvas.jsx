@@ -141,10 +141,15 @@ export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, se
   // Commits outside any state updater: React can run an updater twice, and dispatching
   // from inside one added the trace twice.
   function commitDraft() {
-    if (draft && draft.points.length >= 2) {
-      if (tool === 'trace') dispatch({ type: 'addTrace', net: activeNet, width: activeWidth, points: draft.points })
-      else if (tool === 'outline') dispatch({ type: 'setOutline', points: draft.points })
+    if (!draft) return
+    const minPoints = tool === 'outline' ? 3 : 2   // a polygon needs 3+ points; a trace only 2
+    if (draft.points.length < minPoints) {
+      if (tool === 'outline') return               // too few to close: keep the draft, let them add more
+      setDraft(null)
+      return
     }
+    if (tool === 'trace') dispatch({ type: 'addTrace', net: activeNet, width: activeWidth, points: draft.points })
+    else if (tool === 'outline') dispatch({ type: 'setOutline', points: draft.points })
     setDraft(null)
   }
 
@@ -419,6 +424,8 @@ export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, se
           {cursorMm ? `${cursorMm[0].toFixed(1)}, ${cursorMm[1].toFixed(1)} mm · ` : ''}
           space+drag or middle mouse to pan · wheel to zoom
           {(tool === 'trace' || tool === 'outline') && ' · enter/double-click to finish, esc to cancel'}
+          {tool === 'outline' && draft && draft.points.length < 3 &&
+            ` · ${draft.points.length} of 3 points needed to close the outline`}
           {tool === 'select' && ' · drag to move, alt-click an edge to add a point'}
         </span>
       </div>
