@@ -20,11 +20,14 @@ from .samples import SAMPLES, register_samples
 from .storage import Storage
 
 MAX_UPLOAD = int(os.environ.get("MAX_UPLOAD_BYTES", 30_000_000))
-ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",")]
+ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+# Vercel gives every preview deployment its own URL, so allow a pattern as well as a list.
+ORIGIN_REGEX = os.environ.get("ALLOWED_ORIGIN_REGEX") or None
 
 app = FastAPI(title="kicad2cad", version="0.1.0",
               description="Turn a KiCad board into a 3D-printable 3DPCB board.")
-app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_origin_regex=ORIGIN_REGEX,
+                   allow_methods=["*"], allow_headers=["*"])
 store = Storage()
 samples = register_samples(store)
 

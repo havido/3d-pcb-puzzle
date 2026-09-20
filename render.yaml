@@ -14,5 +14,7 @@ services:
         value: /tmp/mpl
       - key: KICAD2CAD_STORAGE     # boards + conversion results (ephemeral on free plans)
         value: /tmp/kicad2cad-web
-      - key: ALLOWED_ORIGINS       # set to your Vercel URL once the frontend is deployed
+      - key: ALLOWED_ORIGINS        # set to your Vercel production URL once the UI is deployed
         value: "*"
+      - key: ALLOWED_ORIGIN_REGEX   # optional: also allow Vercel preview deployments
+        value: ""

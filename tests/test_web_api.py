@@ -97,3 +97,8 @@ def test_stream_sends_stages_then_the_result(client, testboard_id):
     assert body.count("event: stage") == 5 and body.count("event: done") == 1
     payload = json.loads(body.split("event: done\ndata: ")[1].split("\n\n")[0])
     assert payload["build"]["watertight"] and payload["recipe"]["base_thickness"] == 2.4
+
+
+def test_cors_allows_a_configured_origin(client):
+    r = client.get("/api/health", headers={"Origin": "https://example.vercel.app"})
+    assert r.headers.get("access-control-allow-origin") in ("*", "https://example.vercel.app")
