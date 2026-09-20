@@ -43,7 +43,7 @@ This writes `goose/goose_landscape_v3_fab_clamshell.fs` and prints a report (Z l
 2. In a Part Studio, add the custom feature ("3DPCB clamshell set - ..."). Tick the bodies you want; "Exploded view gap" separates them.
 3. Export each body as STL/3MF. Print settings are in [CLAUDE.md](CLAUDE.md) ("Printer tolerances").
 
-> `kicad2fab.py` has no direct STL output. The general **KiCad → STL/3MF** converter is `tools/kicad2cad` on branch `feat/kicad2cad` (plain raised-copper board today). The plan is to port the moat / rim / cutter geometry from `kicad2fab.py` onto it — see [docs/PIPELINE.md](docs/PIPELINE.md#4-roadmap-generalising-the-pipeline).
+> `kicad2fab.py` has no direct STL output. The general **KiCad → STL/3MF** converter is `tools/kicad2cad` (in `main`; plain raised-copper board today, plus a browser UI in `web/`). The plan is to port the moat / rim / cutter geometry from `kicad2fab.py` onto it — see [docs/PIPELINE.md](docs/PIPELINE.md#4-roadmap-generalising-the-pipeline).
 
 ## Convert a board in the browser
 

@@ -4,7 +4,7 @@ Turn **any** KiCad board file (`.kicad_pcb`) into a 3D-printable 3DPCB board wit
 
 - Ticket: #15, "Generator v1". Its outputs feed #29 (cutter plate), #31 (design checks) and #16 (on-screen goose map).
 - Owner: havido (#15).
-- **Status (Sat 10:50): phases 0–4 done on branch `feat/kicad2cad`, 95 tests passing.** Use `--recipe params/3dpcb.yaml` for boards you'll print. **Still to do by hand: H-A, H-B, H-C** (§7). Next: phase 5 (goose comparison) once Adit's files are in #28, and phase 6 (docs/handoff).
+- **Status: phases 0–4 merged into `main` (#42), 95 tests passing; the browser UI is #43.** Use `--recipe params/3dpcb.yaml` for boards you'll print. **Still to do by hand: H-A, H-B, H-C** (§7). Next: phase 5 (goose comparison) once Adit's files are in #28, and phase 6 (docs/handoff).
 - Written 2026-09-19. The golden numbers below were measured from `Archive 2/badge.kicad_pcb`.
 
 ## 1. Goal, scope, definition of done

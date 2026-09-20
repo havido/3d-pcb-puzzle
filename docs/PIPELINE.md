@@ -1,6 +1,6 @@
 # The KiCad → printable-parts pipeline
 
-How `tools/kicad2fab.py` works today, what in it is specific to the goose/badge demo, and a roadmap for folding it into the general **KiCad PCB → STL** tool, `tools/kicad2cad` (branch `feat/kicad2cad`, plan in [kicad2cad-plan.md](kicad2cad-plan.md)).
+How `tools/kicad2fab.py` works today, what in it is specific to the goose/badge demo, and a roadmap for folding it into the general **KiCad PCB → STL** tool, `tools/kicad2cad` (in `main`, plan in [kicad2cad-plan.md](kicad2cad-plan.md)).
 
 ## 1. Data flow
 
@@ -80,7 +80,7 @@ These are the things to parameterise before another board can go through:
 
 **Two generators exist. Do not grow both.**
 
-| | `tools/kicad2fab.py` (Adit, this doc) | `tools/kicad2cad` (havido, branch `feat/kicad2cad`) |
+| | `tools/kicad2fab.py` (Adit, this doc) | `tools/kicad2cad` (havido, in `main`) |
 |---|---|---|
 | Reads | tracks + vias only, by net | every copper primitive (tracks, arcs, pads, vias, zones, graphics) with net + footprint ref, in a typed `Board2D` model |
 | Builds | board with moat + shear rim, **cutter**, badge tray, keys, clip, plungers, pin gauge | plain board with raised copper, alignment holes, user-layer recesses / pockets |
