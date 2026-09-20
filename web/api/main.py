@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import convert as conv
+from .design import router as design_router
 from .samples import SAMPLES, register_samples
 from .storage import Storage
 
@@ -25,6 +26,7 @@ ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",")]
 app = FastAPI(title="kicad2cad", version="0.1.0",
               description="Turn a KiCad board into a 3D-printable 3DPCB board.")
 app.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=["*"], allow_headers=["*"])
+app.include_router(design_router)
 store = Storage()
 samples = register_samples(store)
 

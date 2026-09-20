@@ -30,5 +30,13 @@ export function convertStream(boardId, settings, onStage) {
   return { done, cancel: () => es.close() }
 }
 
+const postJson = (path, body) =>
+  fetch(`${API}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(json)
+
+// Design tab: a document becomes a real .kicad_pcb the Convert tab can take, and an
+// existing board can be opened as an editable document.
+export const designToKicad = (document) => postJson('/api/design/kicad', { document })
+export const designImport = (boardId) => postJson('/api/design/import', { board_id: boardId })
+
 export const fileUrl = (jobId, name) => `${API}/api/jobs/${jobId}/files/${name}`
 export const bundleUrl = (jobId) => `${API}/api/jobs/${jobId}/bundle.zip`

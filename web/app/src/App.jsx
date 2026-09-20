@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Viewer from './Viewer.jsx'
-import { bundleUrl, convertStream, fileUrl, getSamples, getSchema, uploadBoard, API } from './api.js'
+import DesignTab from './design/DesignTab.jsx'
+import { bundleUrl, convertStream, designToKicad, fileUrl, getSamples, getSchema, uploadBoard, API } from './api.js'
 
 // The five steps the API reports, with the wording shown before each one arrives.
 const STEPS = [
@@ -27,6 +28,7 @@ function writeHash(boardId, settings) {
 }
 
 export default function App() {
+  const [appTab, setAppTab] = useState('convert')       // top-level Convert | Design switch
   const [schema, setSchema] = useState(null)
   const [samples, setSamples] = useState([])
   const [board, setBoard] = useState(null)            // {board_id, name}
@@ -78,12 +80,26 @@ export default function App() {
   }
 
   const onDrop = (e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onUpload(f) }
+
+  // The Design tab hands its document over: it becomes a real .kicad_pcb, then goes
+  // through exactly the same conversion as an uploaded board.
+  const convertDesign = useCallback(async (doc) => {
+    const { board_id } = await designToKicad(doc)
+    setBoard({ board_id, name: 'Design' })
+    setAppTab('convert')
+  }, [])
   const set = (name, value) => setSettings((s) => ({ ...s, [name]: value }))
 
   const b = result?.build
   const done = stages.length >= STEPS.length
 
   return (
+    <>
+      <div className="app-switch">
+        <button className={appTab === 'convert' ? 'on' : ''} onClick={() => setAppTab('convert')}>Convert</button>
+        <button className={appTab === 'design' ? 'on' : ''} onClick={() => setAppTab('design')}>Design</button>
+      </div>
+      {appTab === 'design' ? <DesignTab onConvert={convertDesign} /> : (
     <div className="app" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <header>
         <div>
@@ -224,5 +240,7 @@ export default function App() {
         )}
       </aside>
     </div>
+      )}
+    </>
   )
 }
