@@ -56,7 +56,7 @@ function liveAt(hole, dragPreview) {
   return [hole.at[0] + dx, hole.at[1] + dy]
 }
 
-export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, selection, setSelection, violations }) {
+export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, selection, setSelection, violations, fitToken }) {
   const wrapRef = useRef(null)
   const svgRef = useRef(null)
   const [rect, setRect] = useState(null)
@@ -102,6 +102,18 @@ export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, se
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, selection, doc, tool])
 
+  // Changing tool abandons whatever was being drawn, rather than leaving it on screen.
+  useEffect(() => { setDraft(null) }, [tool])
+
+  // Re-fit when the document is replaced (a preset, or opening a real board), otherwise
+  // a board somewhere else in the coordinate plane lands off-screen.
+  const docRef = useRef(doc)
+  docRef.current = doc
+  useEffect(() => {
+    if (fitToken === undefined) return
+    setCam(fitCam(docRef.current, wrapRef.current?.getBoundingClientRect()))
+  }, [fitToken])
+
   const viewW = (rect?.width || 800) * cam.scale
   const viewH = (rect?.height || 600) * cam.scale
   const minX = cam.cx - viewW / 2
@@ -126,13 +138,14 @@ export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, se
     }
   }
 
+  // Commits outside any state updater: React can run an updater twice, and dispatching
+  // from inside one added the trace twice.
   function commitDraft() {
-    setDraft((d) => {
-      if (!d || d.points.length < 2) return null
-      if (tool === 'trace') dispatch({ type: 'addTrace', net: activeNet, width: activeWidth, points: d.points })
-      else if (tool === 'outline') dispatch({ type: 'setOutline', points: d.points })
-      return null
-    })
+    if (draft && draft.points.length >= 2) {
+      if (tool === 'trace') dispatch({ type: 'addTrace', net: activeNet, width: activeWidth, points: draft.points })
+      else if (tool === 'outline') dispatch({ type: 'setOutline', points: draft.points })
+    }
+    setDraft(null)
   }
 
   // A pure function of (prior draft, raw point) — safe under StrictMode's
@@ -183,9 +196,10 @@ export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, se
           return
         }
       }
-      // 2. a segment of the currently selected object -> insert + start dragging it
+      // 2. alt-click a segment of the selected object -> insert a vertex there and drag it.
+      //    Without alt, a drag on the body moves the whole object (case 3).
       const closed = selection.id === 'outline'
-      const segCount = closed ? selPts.length : selPts.length - 1
+      const segCount = e.altKey ? (closed ? selPts.length : selPts.length - 1) : 0
       for (let i = 0; i < segCount; i++) {
         const a = selPts[i], b = selPts[(i + 1) % selPts.length]
         if (distToSegment(mm, a, b) <= tol) {
@@ -277,7 +291,7 @@ export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, se
   }
 
   function handleClick(e) {
-    if (spaceHeld) return
+    if (spaceHeld || e.detail > 1) return      // the 2nd click of a double-click finishes, it doesn't add
     const mm = screenToMm(e)
     if (tool === 'hole') {
       dispatch({ type: 'addHole', at: snapToGrid(mm, doc.grid), d: 1.2, role: 'generic', net: activeNet })
@@ -405,6 +419,7 @@ export default function Canvas({ doc, dispatch, tool, activeNet, activeWidth, se
           {cursorMm ? `${cursorMm[0].toFixed(1)}, ${cursorMm[1].toFixed(1)} mm · ` : ''}
           space+drag or middle mouse to pan · wheel to zoom
           {(tool === 'trace' || tool === 'outline') && ' · enter/double-click to finish, esc to cancel'}
+          {tool === 'select' && ' · drag to move, alt-click an edge to add a point'}
         </span>
       </div>
     </div>

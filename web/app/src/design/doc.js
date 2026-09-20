@@ -182,7 +182,7 @@ export function outlinePoints(preset, opts = {}) {
 
 export const DEFAULT_NETS = [
   { name: 'GND', color: '#8b98a8' },
-  { name: 'PENALTY', color: '#f85149' },
+  { name: 'PENALTY', color: '#d9822b' },   // not red: red means a rule violation
   { name: 'GOAL_1', color: '#3fb950' },
   { name: 'GOAL_2', color: '#58a6ff' },
 ]
@@ -196,6 +196,20 @@ export function newDocument(preset = 'rectangle', opts = {}) {
     nets: (opts.nets || DEFAULT_NETS).map((n) => ({ ...n })),
     objects: [],
   }
+}
+
+// Documents that come back from the API carry no colours, so give their nets the
+// familiar ones by name and a distinct colour to anything unfamiliar.
+const PALETTE = ['#d9822b', '#3fb950', '#58a6ff', '#a371f7', '#d29922', '#2ea7a0']
+
+export function withNetColors(doc) {
+  const known = new Map(DEFAULT_NETS.map((n) => [n.name, n.color]))
+  let next = 0
+  const nets = (doc.nets || []).map((n) => {
+    const plain = !n.color || n.color === '#888888'
+    return { ...n, color: plain ? (known.get(n.name) || PALETTE[next++ % PALETTE.length]) : n.color }
+  })
+  return { ...doc, nets }
 }
 
 export function netColor(doc, name) {

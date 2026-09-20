@@ -31,3 +31,5 @@ web/app/node_modules/
 web/app/dist/
 web/app/.env
 web/app/.vercel/
+web/app/test-results/
+web/app/playwright-report/

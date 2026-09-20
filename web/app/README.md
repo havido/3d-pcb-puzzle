@@ -38,9 +38,24 @@ The app talks to `http://localhost:8765` unless `VITE_API_BASE` is set (see `.en
 
 ## Before you push
 ```bash
-cd web/app && npm run build      # CI runs exactly this; it must pass
+cd web/app
+npm run build        # CI runs this
+npm run test:e2e     # CI runs this too: a real browser drives the app
 ```
-Then click through: pick each sample, drag in a `.kicad_pcb`, drag a slider, toggle copper and plate, move the slice slider, click a warning, download an STL, reload the page (the URL should restore your state).
+`test:e2e` starts the API and the dev server if they aren't already up, then drives Chromium
+through the Design tab: drawing a trace, switching tools mid-draw, double-click to finish,
+selecting and moving, dragging a vertex, undo/redo, adding a hole, the live rules, opening the
+goose and converting it to 3D. Add a case to `tests/design.spec.js` for anything you build;
+`npm run test:e2e:headed` shows the browser while it runs, which is the quickest way to see
+why something failed.
+
+These caught the first round of bugs in this tab: a trace was added twice on Enter (a dispatch
+inside a React state updater, which can run twice), a half-drawn trace stayed on screen after
+switching tools, and an opened board landed off-camera.
+
+Then click through by hand as well: pick each sample, drag in a `.kicad_pcb`, drag a slider,
+toggle copper and plate, move the slice slider, click a warning, download an STL, reload the
+page (the URL should restore your state).
 
 ## Good first tasks
 1. **Busy state.** While a conversion runs, dim the viewer and show a spinner instead of the old board silently staying put.

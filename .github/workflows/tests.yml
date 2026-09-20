@@ -26,3 +26,28 @@ jobs:
         working-directory: web/app
       - run: npm run build
         working-directory: web/app
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt && pip install -e .
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/app/package-lock.json
+      - run: npm ci
+        working-directory: web/app
+      - run: npx playwright install --with-deps chromium
+        working-directory: web/app
+      - name: start the API
+        run: |
+          uvicorn api.main:app --app-dir web --port 8765 &
+          for i in $(seq 1 30); do curl -fsS localhost:8765/api/health && break; sleep 1; done
+      - run: npx playwright test --reporter=line
+        working-directory: web/app

@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { designImport, getSamples } from '../api.js'
 import Canvas from './Canvas.jsx'
-import { historyReducer, initHistory, newDocument, outlinePoints, polygonBounds } from './doc.js'
+import { historyReducer, initHistory, newDocument, outlinePoints, polygonBounds, withNetColors } from './doc.js'
 import { checkRules } from './rules.js'
 
 const STORAGE_KEY = 'design.doc.v1'
@@ -49,6 +49,7 @@ export default function DesignTab({ onConvert }) {
   const [samples, setSamples] = useState([])
   const [busy, setBusy] = useState(null)               // 'convert' | 'open' while the API works
   const [error, setError] = useState(null)
+  const [fitToken, setFitToken] = useState(0)
 
   useEffect(() => { getSamples().then(setSamples).catch(() => setSamples([])) }, [])
 
@@ -58,8 +59,9 @@ export default function DesignTab({ onConvert }) {
     setBusy('open'); setError(null)
     try {
       const { document } = await designImport(sample.board_id)
-      dispatch({ type: 'load', doc: document })
+      dispatch({ type: 'load', doc: withNetColors(document) })
       setSelection(null)
+      setFitToken((n) => n + 1)
     } catch (e) { setError(e.message) } finally { setBusy(null) }
   }
 
@@ -90,6 +92,7 @@ export default function DesignTab({ onConvert }) {
     const height = Math.max(bb.maxY - bb.minY, 20)
     dispatch({ type: 'setOutline', points: outlinePoints(preset, { width, height }) })
     setSelection(null)
+    setFitToken((n) => n + 1)
   }
 
   return (
@@ -155,6 +158,7 @@ export default function DesignTab({ onConvert }) {
           selection={selection}
           setSelection={setSelection}
           violations={violations}
+          fitToken={fitToken}
         />
       </div>
 
