@@ -1,5 +1,5 @@
 -- Headless tests for the badge apps (the badge has no simulator).
---   python app/tools/badge.py build goose && ... preview && ... diag
+--   python app/tools/badge.py build goose && ... diag
 --   lua app/tools/test.lua
 -- Loads each built single-file app from app/dist/ in a sandbox like the
 -- badge's (no pcall/setmetatable/os/io/load), with a mock badge API.
@@ -122,7 +122,6 @@ local function smoke(file)
 end
 
 smoke("goose_diag.lua")
-smoke("goose_preview.lua")
 smoke("goose_doctor.lua")
 
 -- 2a. ui.lua honours the contract (this is what protects game.lua from ui edits)
