@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kicad2cad"
+version = "0.1.0"
+description = "Turn a KiCad board (.kicad_pcb) into a 3D-printable 3DPCB board"
+requires-python = ">=3.11"
+
+[project.scripts]
+kicad2cad = "kicad2cad.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["tools"]
+
+[tool.pytest.ini_options]
+pythonpath = ["tools"]
+testpaths = ["tests"]

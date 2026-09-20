@@ -45,6 +45,16 @@ This writes `goose/goose_landscape_v3_fab_clamshell.fs` and prints a report (Z l
 
 > `kicad2fab.py` has no direct STL output. The general **KiCad → STL/3MF** converter is `tools/kicad2cad` on branch `feat/kicad2cad` (plain raised-copper board today). The plan is to port the moat / rim / cutter geometry from `kicad2fab.py` onto it — see [docs/PIPELINE.md](docs/PIPELINE.md#4-roadmap-generalising-the-pipeline).
 
+## Convert a board in the browser
+
+`web/` is a small web app around `tools/kicad2cad`: pick a sample board or drop in your own `.kicad_pcb`, watch the five conversion steps stream past, spin the result in 3D, change any setting and see it rebuild, then download the STL/3MF.
+
+```bash
+./web/dev.sh        # API on :8765, UI on :5173
+```
+
+Deployment (Render + Vercel) and the API reference: [web/README.md](web/README.md). Working on the UI: [web/app/README.md](web/app/README.md).
+
 ## Drawing a board in KiCad
 
 | Layer | Becomes |
@@ -77,6 +87,7 @@ goose/      the demo board: KiCad source, generated .fs, previews; history/ = ol
 Archive 2/  the organisers' badge KiCad project (read-only reference, not ours; tests depend on this path)
 docs/       PIPELINE.md = how kicad2fab works + roadmap; kicad2cad-plan.md = the general converter's plan
 app/        badge app (branch feat/badge-app)
+web/        browser UI for the converter: web/api (FastAPI) + web/app (React + three.js)
 PLAN.md, RESEARCH_PROMPTS.md   the parked robot-assembly plan
 CONTEXT.md  badge pin map, pad coordinates, interface options, earlier ideas
 CLAUDE.md   project brief, decisions, constraints, tolerances (also the instructions for Claude Code)
