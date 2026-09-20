@@ -1,0 +1,2 @@
+# the service uses the repo's single dependency list
+-r ../../requirements.txt

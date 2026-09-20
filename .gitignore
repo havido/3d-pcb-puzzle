@@ -25,3 +25,9 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# web app
+web/app/node_modules/
+web/app/dist/
+web/app/.env
+web/app/.vercel/
